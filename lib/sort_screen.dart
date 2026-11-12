@@ -12,6 +12,7 @@ import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'drive_source_screen.dart';
+import 'models/local_delete_mode.dart';
 import 'models/target_folder.dart';
 import 'services/drive_upload_queue.dart';
 import 'services/google_drive_service.dart';
@@ -130,7 +131,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Could not restore Google Drive session: $error'),
+            content: Text('Unable to restore the Google Drive session: $error'),
           ),
         );
       }
@@ -172,7 +173,9 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
       setState(() => _isLoadingAlbums = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Gallery permission denied.')),
+          const SnackBar(
+            content: Text('Permission to access the gallery was denied.'),
+          ),
         );
       }
       return;
@@ -512,6 +515,11 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
 
     try {
       final readyBatches = await DriveUploadQueue.getReadyBatches();
+      if (readyBatches.isEmpty) return;
+      final preferences = await SharedPreferences.getInstance();
+      final deleteMode = LocalDeleteMode.fromPreference(
+        preferences.getString(LocalDeleteMode.preferenceKey),
+      );
       final claimedBatches = <DriveUploadBatchResult>[];
       for (final batch in readyBatches) {
         if (!_deletingDriveBatches.add(batch.id)) continue;
@@ -531,9 +539,20 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
       Object? deletionError;
       if (uploadedAssetIds.isNotEmpty) {
         try {
-          deletedAssetIds = await PhotoManager.editor.deleteWithIds(
-            uploadedAssetIds,
-          );
+          if (deleteMode == LocalDeleteMode.moveToTrash) {
+            final assets = (await Future.wait(
+              uploadedAssetIds.map(AssetEntity.fromId),
+            )).whereType<AssetEntity>().toList();
+            if (assets.isNotEmpty) {
+              deletedAssetIds = await PhotoManager.editor.android.moveToTrash(
+                assets,
+              );
+            }
+          } else {
+            deletedAssetIds = await PhotoManager.editor.deleteWithIds(
+              uploadedAssetIds,
+            );
+          }
         } catch (error, stackTrace) {
           deletionError = error;
           debugPrint(
@@ -564,7 +583,11 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
         );
         final messages = <String>[];
         if (deletedCount > 0) {
-          messages.add('Deleted $deletedCount local item(s).');
+          messages.add(
+            deleteMode == LocalDeleteMode.moveToTrash
+                ? 'Moved $deletedCount local item(s) to Trash.'
+                : 'Permanently deleted $deletedCount local item(s).',
+          );
         }
         if (notDeletedCount > 0) {
           messages.add(
@@ -712,7 +735,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
             IconButton(
               onPressed: openSettings,
               icon: const Icon(Icons.settings),
-              tooltip: 'Target Folders Settings',
+              tooltip: 'Target folder settings',
             ),
           ],
         ),
@@ -733,7 +756,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
 
     if (currentIndex >= total && total > 0) {
       return Scaffold(
-        appBar: AppBar(title: const Text('PilahFoto • Complete')),
+        appBar: AppBar(title: const Text('PilahFoto • Sorting complete')),
         body: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
@@ -742,7 +765,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
               const Icon(Icons.check_circle_outline, size: 80),
               const SizedBox(height: 16),
               Text(
-                'All media in "${_selectedAlbum!.name}" processed!',
+                'All media in "${_selectedAlbum!.name}" have been processed.',
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -797,7 +820,9 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
             _buildSortAndFilterBar(),
             Expanded(
               child: Center(
-                child: Text('No ${_mediaFilter.name} found in this folder.'),
+                child: Text(
+                  'No media matching this filter was found in this folder.',
+                ),
               ),
             ),
           ],
@@ -825,7 +850,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
             Text(
-              '$sisa of $total items left',
+              '$sisa of $total items remaining',
               style: TextStyle(
                 fontSize: 11,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,

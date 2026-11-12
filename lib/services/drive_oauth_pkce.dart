@@ -20,3 +20,12 @@ String createOAuthState() {
   final bytes = List<int>.generate(32, (_) => random.nextInt(256));
   return base64Url.encode(bytes).replaceAll('=', '');
 }
+
+void addOptionalClientSecret(
+  Map<String, String> parameters,
+  String? clientSecret,
+) {
+  if (clientSecret != null && clientSecret.trim().isNotEmpty) {
+    parameters['client_secret'] = clientSecret;
+  }
+}

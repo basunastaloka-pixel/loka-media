@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
-import 'dart:io'; // Tambahkan ini jika nantinya menggunakan File gambar lokal HP
 
-// 1. Model PhotoItem (Definisi tipe data agar tidak merah)
+import 'dart:io';
+
 class PhotoItem {
   final String id;
-  final String imageUrl; // Berisi URL gambar atau path file lokal
+  final String imageUrl;
 
-  PhotoItem({
-    required this.id,
-    required this.imageUrl,
-  });
+  PhotoItem({required this.id, required this.imageUrl});
 }
 
 class FolderScreen extends StatelessWidget {
@@ -20,9 +17,7 @@ class FolderScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Hasil Pemilahan Folder'),
-      ),
+      appBar: AppBar(title: const Text('Sorted Folders')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: folderContents.entries.map((entry) {
@@ -37,13 +32,15 @@ class FolderScreen extends StatelessWidget {
                 folderName,
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              subtitle: Text('${photos.length} foto/video'),
+              subtitle: Text('${photos.length} media items'),
               children: [
                 if (photos.isEmpty)
                   const Padding(
                     padding: EdgeInsets.all(16.0),
-                    child: Text('Belum ada foto di folder ini',
-                        style: TextStyle(color: Colors.grey)),
+                    child: Text(
+                      'No photos or videos in this folder yet.',
+                      style: TextStyle(color: Colors.grey),
+                    ),
                   )
                 else
                   GridView.builder(
@@ -52,10 +49,10 @@ class FolderScreen extends StatelessWidget {
                     padding: const EdgeInsets.all(8),
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      crossAxisSpacing: 4,
-                      mainAxisSpacing: 4,
-                    ),
+                          crossAxisCount: 3,
+                          crossAxisSpacing: 4,
+                          mainAxisSpacing: 4,
+                        ),
                     itemCount: photos.length,
                     itemBuilder: (context, index) {
                       final item = photos[index];
@@ -69,15 +66,19 @@ class FolderScreen extends StatelessWidget {
                                     item.imageUrl,
                                     fit: BoxFit.cover,
                                     errorBuilder: (ctx, err, stack) =>
-                                        const Icon(Icons.broken_image,
-                                            color: Colors.grey),
+                                        const Icon(
+                                          Icons.broken_image,
+                                          color: Colors.grey,
+                                        ),
                                   )
                                 : Image.file(
                                     File(item.imageUrl),
                                     fit: BoxFit.cover,
                                     errorBuilder: (ctx, err, stack) =>
-                                        const Icon(Icons.broken_image,
-                                            color: Colors.grey),
+                                        const Icon(
+                                          Icons.broken_image,
+                                          color: Colors.grey,
+                                        ),
                                   ),
                           ),
                           Positioned(

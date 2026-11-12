@@ -31,6 +31,7 @@ android {
 
 dependencies {
     implementation("com.google.android.gms:play-services-auth:22.0.0")
+    implementation("androidx.core:core:1.15.0")
 }
 
 kotlin {

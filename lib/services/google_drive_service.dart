@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
+import 'drive_folder_link.dart';
 import 'drive_oauth_pkce.dart';
 
 class DriveAccount {
@@ -32,6 +32,9 @@ class GoogleDriveService {
   static const _pickerChannel = MethodChannel('pilah_foto/google_drive_picker');
   static const _desktopClientId = String.fromEnvironment(
     'GOOGLE_DESKTOP_CLIENT_ID',
+  );
+  static const _desktopClientSecret = String.fromEnvironment(
+    'GOOGLE_DESKTOP_CLIENT_SECRET',
   );
   static const _driveScope = 'https://www.googleapis.com/auth/drive.file';
   static const _requestedScopes = '$_driveScope email';
@@ -79,13 +82,10 @@ class GoogleDriveService {
     );
     if (storedAccessToken != null &&
         storedExpiry != null &&
-        DateTime.fromMillisecondsSinceEpoch(storedExpiry).isAfter(
-          DateTime.now().add(const Duration(minutes: 2)),
-        )) {
+        DateTime.fromMillisecondsSinceEpoch(storedExpiry)
+            .isAfter(DateTime.now().add(const Duration(minutes: 2)))) {
       _accessToken = storedAccessToken;
-      _accessTokenExpiresAt = DateTime.fromMillisecondsSinceEpoch(
-        storedExpiry,
-      );
+      _accessTokenExpiresAt = DateTime.fromMillisecondsSinceEpoch(storedExpiry);
     } else {
       await _refreshAccessToken();
     }
@@ -97,8 +97,8 @@ class GoogleDriveService {
     if (_desktopClientId.trim().isEmpty) {
       throw const GoogleDriveConnectionException(
         'missing_desktop_client_id',
-        'Google Desktop OAuth client ID belum diatur. Jalankan aplikasi '
-            'dengan --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<client-id>.',
+        'Google Desktop OAuth client ID is not configured. Launch the app '
+            'with --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<client-id>.',
       );
     }
 
@@ -116,14 +116,12 @@ class GoogleDriveService {
         'code_challenge': createPkceCodeChallenge(verifier),
         'code_challenge_method': 'S256',
         'access_type': 'offline',
-          'prompt': 'consent select_account',
+        'prompt': 'consent select_account',
       },
     );
 
     try {
-      final callbackFuture = server.first.timeout(
-        const Duration(minutes: 3),
-      );
+      final callbackFuture = server.first.timeout(const Duration(minutes: 3));
       final launched = await launchUrl(
         authorizationUri,
         mode: LaunchMode.externalApplication,
@@ -131,7 +129,7 @@ class GoogleDriveService {
       if (!launched) {
         throw const GoogleDriveConnectionException(
           'browser_unavailable',
-          'Tidak dapat membuka browser untuk menghubungkan Google Drive.',
+          'Unable to open a browser to connect to Google Drive.',
         );
       }
 
@@ -144,7 +142,7 @@ class GoogleDriveService {
       request.response.write(
         '<!doctype html><meta charset="utf-8">'
         '<title>PilahFoto</title>'
-        '<p>Login selesai. Anda dapat kembali ke PilahFoto.</p>',
+        '<p>Sign-in complete. You can return to PilahFoto.</p>',
       );
       await request.response.close();
 
@@ -154,7 +152,7 @@ class GoogleDriveService {
       if (callbackUri.queryParameters['state'] != state) {
         throw const GoogleDriveConnectionException(
           'oauth_state_mismatch',
-          'Respons OAuth tidak cocok dengan permintaan login.',
+          'The OAuth response did not match the sign-in request.',
         );
       }
       final authError = callbackUri.queryParameters['error'];
@@ -162,7 +160,7 @@ class GoogleDriveService {
       if (authError != null) {
         throw GoogleDriveConnectionException(
           'oauth_authorization_failed',
-          'Google OAuth gagal: $authError',
+          'Google OAuth failed: $authError',
         );
       }
       final code = callbackUri.queryParameters['code'];
@@ -172,17 +170,21 @@ class GoogleDriveService {
         );
       }
 
-      final tokenResponse = await http.post(
-        Uri.parse(_tokenEndpoint),
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: {
-          'client_id': _desktopClientId,
-          'code': code,
-          'code_verifier': verifier,
-          'redirect_uri': redirectUri,
-          'grant_type': 'authorization_code',
-        },
-      );
+      final tokenParameters = <String, String>{
+        'client_id': _desktopClientId,
+        'code': code,
+        'code_verifier': verifier,
+        'redirect_uri': redirectUri,
+        'grant_type': 'authorization_code',
+      };
+      addOptionalClientSecret(tokenParameters, _desktopClientSecret);
+      final tokenResponse = await http
+          .post(
+            Uri.parse(_tokenEndpoint),
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: tokenParameters,
+          )
+          .timeout(const Duration(seconds: 30));
       final tokens = _decodeTokenResponse(tokenResponse);
       final accessToken = _requiredString(tokens, 'access_token');
       final refreshToken = _requiredString(tokens, 'refresh_token');
@@ -192,9 +194,7 @@ class GoogleDriveService {
 
       _accessToken = accessToken;
       _refreshToken = refreshToken;
-      _accessTokenExpiresAt = DateTime.now().add(
-        Duration(seconds: expiresIn),
-      );
+      _accessTokenExpiresAt = DateTime.now().add(Duration(seconds: expiresIn));
       _currentUser = account;
       await _persistTokens();
       _installClient();
@@ -202,7 +202,7 @@ class GoogleDriveService {
     } on TimeoutException {
       throw const GoogleDriveConnectionException(
         'oauth_timeout',
-        'Login Google tidak selesai dalam 3 menit. Silakan coba lagi.',
+        'Google sign-in did not complete within 3 minutes. Please try again.',
       );
     } finally {
       await server.close(force: true);
@@ -210,20 +210,23 @@ class GoogleDriveService {
   }
 
   Future<DriveAccount> _getAccountFromIdToken(String idToken) async {
-    final response = await http.get(
-      Uri.parse(_tokenInfoEndpoint).replace(
-        queryParameters: {'id_token': idToken},
-      ),
-    );
+    final response = await http
+        .get(
+          Uri.parse(_tokenInfoEndpoint)
+              .replace(queryParameters: {'id_token': idToken}),
+        )
+        .timeout(const Duration(seconds: 30));
     final info = _decodeTokenResponse(response);
     final audience = info['aud'];
     final email = info['email'];
     final id = info['sub'];
     final issuer = info['iss'];
+    final emailVerified = info['email_verified'];
     final expiry = int.tryParse(info['exp']?.toString() ?? '');
     if (audience != _desktopClientId ||
         email is! String ||
         email.isEmpty ||
+        (emailVerified != true && emailVerified != 'true') ||
         expiry == null ||
         expiry <= DateTime.now().millisecondsSinceEpoch ~/ 1000 ||
         (issuer != 'accounts.google.com' &&
@@ -271,26 +274,30 @@ class GoogleDriveService {
     if (_desktopClientId.trim().isEmpty) {
       throw const GoogleDriveConnectionException(
         'missing_desktop_client_id',
-        'Google Desktop OAuth client ID belum diatur.',
+        'Google Desktop OAuth client ID is not configured.',
       );
     }
     final refreshToken = _refreshToken;
     if (refreshToken == null) {
       throw const GoogleDriveConnectionException(
         'missing_refresh_token',
-        'Sesi Google Drive berakhir. Hubungkan ulang akun Google.',
+        'Your Google Drive session has expired. Reconnect your Google account.',
       );
     }
 
-    final response = await http.post(
-      Uri.parse(_tokenEndpoint),
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: {
-        'client_id': _desktopClientId,
-        'refresh_token': refreshToken,
-        'grant_type': 'refresh_token',
-      },
-    );
+    final tokenParameters = <String, String>{
+      'client_id': _desktopClientId,
+      'refresh_token': refreshToken,
+      'grant_type': 'refresh_token',
+    };
+    addOptionalClientSecret(tokenParameters, _desktopClientSecret);
+    final response = await http
+        .post(
+          Uri.parse(_tokenEndpoint),
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: tokenParameters,
+        )
+        .timeout(const Duration(seconds: 30));
     final tokens = _decodeTokenResponse(response);
     _accessToken = _requiredString(tokens, 'access_token');
     final rotatedRefreshToken = tokens['refresh_token'];
@@ -383,6 +390,28 @@ class GoogleDriveService {
       parentId,
       "mimeType = 'application/vnd.google-apps.folder'",
     );
+  }
+
+  Future<drive.File> getFolderFromLink(String link) async {
+    final folderId = extractDriveFolderId(link);
+    if (folderId == null) {
+      throw const FormatException('Enter a valid Google Drive folder link.');
+    }
+
+    final api = await _requireApi();
+    final folder = await api.files.get(
+      folderId,
+      supportsAllDrives: true,
+      $fields: 'id,name,mimeType',
+    ) as drive.File;
+    if (folder.id != folderId ||
+        folder.name == null ||
+        folder.mimeType != _folderMimeType) {
+      throw const FormatException(
+        'The link does not point to an accessible Google Drive folder.',
+      );
+    }
+    return folder;
   }
 
   Future<drive.File?> pickExistingFolder() async {

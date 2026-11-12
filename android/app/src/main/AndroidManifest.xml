@@ -13,6 +13,7 @@
     <!-- Izin Storage Lama (Android 12 ke bawah) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 
     <!-- Izin Penuh Manajemen File (Wajib untuk memindahkan file antar folder di Android 11+) -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
@@ -44,6 +45,16 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"/>
+        </provider>
 
         <meta-data
             android:name="flutterEmbedding"

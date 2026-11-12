@@ -2,37 +2,25 @@ package com.example.pilah_foto
 
 import android.accounts.Account
 import android.app.Activity
-import android.content.pm.PackageManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import java.security.MessageDigest
+import java.io.File
 
 class MainActivity : FlutterActivity() {
     private var pendingDrivePickerResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            "pilah_foto/google_sign_in_diagnostics",
-        ).setMethodCallHandler { call, result ->
-            if (call.method == "getSigningDetails") {
-                result.success(
-                    mapOf(
-                        "packageName" to packageName,
-                        "sha1" to signingCertificateSha1(),
-                    ),
-                )
-            } else {
-                result.notImplemented()
-            }
-        }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "pilah_foto/google_drive_picker",
@@ -43,6 +31,73 @@ class MainActivity : FlutterActivity() {
             }
             val accountEmail = call.argument<String>("accountEmail")
             pickExistingDriveFolder(accountEmail, result)
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "pilah_foto/app_update",
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "installApk") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            val apkPath = call.argument<String>("path")
+            if (apkPath.isNullOrBlank()) {
+                result.error("invalid_apk_path", "The update APK path is missing.", null)
+                return@setMethodCallHandler
+            }
+
+            val apkFile = File(apkPath)
+            if (!apkFile.isFile) {
+                result.error("apk_not_found", "The downloaded update APK was not found.", null)
+                return@setMethodCallHandler
+            }
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    !packageManager.canRequestPackageInstalls()
+                ) {
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:$packageName"),
+                        ),
+                    )
+                    result.error(
+                        "install_permission_required",
+                        "Allow app installations from this source, then tap Update again.",
+                        null,
+                    )
+                    return@setMethodCallHandler
+                }
+
+                val apkUri = FileProvider.getUriForFile(
+                    this,
+                    "$packageName.fileprovider",
+                    apkFile,
+                )
+                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(
+                        apkUri,
+                        "application/vnd.android.package-archive",
+                    )
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(installIntent)
+                result.success(null)
+            } catch (error: ActivityNotFoundException) {
+                result.error(
+                    "installer_unavailable",
+                    error.message ?: "No package installer is available.",
+                    null,
+                )
+            } catch (error: Exception) {
+                result.error(
+                    "apk_install_failed",
+                    error.message ?: "Unable to open the package installer.",
+                    null,
+                )
+            }
         }
     }
 
@@ -161,35 +216,6 @@ class MainActivity : FlutterActivity() {
     private fun finishDrivePickerError(code: String, message: String) {
         pendingDrivePickerResult?.error(code, message, null)
         pendingDrivePickerResult = null
-    }
-
-    private fun signingCertificateSha1(): String? {
-        val certificate = signingCertificateBytes() ?: return null
-        val digest = MessageDigest.getInstance("SHA-1").digest(certificate)
-        return digest.joinToString(":") { byte ->
-            "%02X".format(byte.toInt() and 0xFF)
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun signingCertificateBytes(): ByteArray? {
-        val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            packageManager.getPackageInfo(
-                packageName,
-                PackageManager.GET_SIGNING_CERTIFICATES,
-            )
-        } else {
-            packageManager.getPackageInfo(
-                packageName,
-                PackageManager.GET_SIGNATURES,
-            )
-        }
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            packageInfo.signingInfo?.apkContentsSigners?.firstOrNull()?.toByteArray()
-        } else {
-            packageInfo.signatures?.firstOrNull()?.toByteArray()
-        }
     }
 
     private companion object {
