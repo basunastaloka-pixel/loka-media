@@ -5,11 +5,12 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 import 'drive_folder_link.dart';
-import 'drive_oauth_pkce.dart';
+import 'windows_desktop_oauth.dart';
 
 class DriveAccount {
   final String id;
@@ -30,11 +31,20 @@ class GoogleDriveConnectionException implements Exception {
 
 class GoogleDriveService {
   static const _pickerChannel = MethodChannel('pilah_foto/google_drive_picker');
-  static const _desktopClientId = String.fromEnvironment(
+  static const _windowsDesktopClientId = String.fromEnvironment(
     'GOOGLE_DESKTOP_CLIENT_ID',
   );
+  static const _googleServerClientId = String.fromEnvironment(
+    'GOOGLE_SERVER_CLIENT_ID',
+  );
   static const _driveScope = 'https://www.googleapis.com/auth/drive.file';
-  static const _requestedScopes = 'openid email $_driveScope';
+  static const _androidDriveScopes = [
+    _driveScope,
+    'openid',
+    'email',
+    'profile',
+  ];
+  static const _requestedScopes = 'openid email profile $_driveScope';
   static const _folderMimeType = 'application/vnd.google-apps.folder';
   static const _authorizationEndpoint =
       'https://accounts.google.com/o/oauth2/v2/auth';
@@ -48,8 +58,10 @@ class GoogleDriveService {
   static const _accountEmailKey = 'pilah_google_account_email';
 
   static final _secureStorage = FlutterSecureStorage();
+  static Future<void>? _googleSignInInitialization;
 
   DriveAccount? _currentUser;
+  GoogleSignInAccount? _googleAccount;
   String? _accessToken;
   String? _refreshToken;
   DateTime? _accessTokenExpiresAt;
@@ -64,6 +76,12 @@ class GoogleDriveService {
 
   Future<DriveAccount?> restoreSession() async {
     _clearApi();
+    if (Platform.isAndroid) return _restoreAndroidSession();
+    if (Platform.isWindows) return _restoreWindowsSession();
+    return null;
+  }
+
+  Future<DriveAccount?> _restoreWindowsSession() async {
     final refreshToken = await _secureStorage.read(key: _refreshTokenKey);
     final email = await _secureStorage.read(key: _accountEmailKey);
     if (refreshToken == null || email == null) return null;
@@ -91,11 +109,141 @@ class GoogleDriveService {
   }
 
   Future<DriveAccount?> signIn() async {
-    if (_desktopClientId.trim().isEmpty) {
+    if (Platform.isAndroid) return _signInAndroid();
+    if (Platform.isWindows) return _signInWindowsDesktop();
+    throw UnsupportedError(
+      'Google Drive sign-in is currently supported on Android and Windows.',
+    );
+  }
+
+  Future<DriveAccount?> _restoreAndroidSession() async {
+    final oldRefreshToken = await _secureStorage.read(key: _refreshTokenKey);
+    if (oldRefreshToken != null) {
+      await _deleteStoredTokens();
+    }
+
+    final storedAccessToken = await _secureStorage.read(key: _accessTokenKey);
+    final email = await _secureStorage.read(key: _accountEmailKey);
+    final storedExpiry = int.tryParse(
+      await _secureStorage.read(key: _accessTokenExpiryKey) ?? '',
+    );
+    if (storedAccessToken != null &&
+        email != null &&
+        storedExpiry != null &&
+        DateTime.fromMillisecondsSinceEpoch(storedExpiry)
+            .isAfter(DateTime.now().add(const Duration(minutes: 2)))) {
+      _accessToken = storedAccessToken;
+      _accessTokenExpiresAt = DateTime.fromMillisecondsSinceEpoch(storedExpiry);
+      _currentUser = DriveAccount(
+        id: await _secureStorage.read(key: _accountIdKey) ?? email,
+        email: email,
+      );
+      _installClient();
+      return _currentUser;
+    }
+
+    await _ensureGoogleSignInInitialized();
+    final attempt = GoogleSignIn.instance.attemptLightweightAuthentication();
+    final account = attempt == null ? null : await attempt;
+    if (account == null) return null;
+
+    final authorization = await account.authorizationClient
+        .authorizationForScopes(_androidDriveScopes);
+    if (authorization == null) {
+      await _deleteStoredTokens();
+      return null;
+    }
+
+    await _saveAndroidAuthorization(account, authorization);
+    _installClient();
+    return _currentUser;
+  }
+
+  Future<DriveAccount?> _signInAndroid() async {
+    await _ensureGoogleSignInInitialized();
+    try {
+      final account = await GoogleSignIn.instance.authenticate(
+        scopeHint: _androidDriveScopes,
+      );
+      final authorization = await account.authorizationClient.authorizeScopes(
+        _androidDriveScopes,
+      );
+      await _saveAndroidAuthorization(account, authorization);
+      _installClient();
+      return _currentUser;
+    } on GoogleSignInException catch (error) {
+      if (error.code == GoogleSignInExceptionCode.canceled) {
+        await GoogleSignIn.instance.signOut();
+        return null;
+      }
+      throw GoogleDriveConnectionException(
+        'google_sign_in_failed',
+        'Google Sign-In failed: ${error.description ?? error.code}.',
+      );
+    }
+  }
+
+  Future<void> _ensureGoogleSignInInitialized() {
+    final serverClientId = _googleServerClientId.trim();
+    if (serverClientId.isEmpty) {
       throw const GoogleDriveConnectionException(
-        'missing_desktop_client_id',
-        'Google Desktop OAuth client ID is not configured. Launch the app '
-            'with --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<client-id>.',
+        'missing_google_server_client_id',
+        'Google Sign-In is not configured. Set GOOGLE_SERVER_CLIENT_ID to the '
+            'Web OAuth client ID.',
+      );
+    }
+    return _googleSignInInitialization ??=
+        GoogleSignIn.instance.initialize(serverClientId: serverClientId);
+  }
+
+  Future<void> _saveAndroidAuthorization(
+    GoogleSignInAccount account,
+    GoogleSignInClientAuthorization authorization,
+  ) async {
+    if (authorization.accessToken.isEmpty) {
+      throw const FormatException(
+        'Google Sign-In did not return a Drive access token.',
+      );
+    }
+
+    _googleAccount = account;
+    _currentUser = DriveAccount(id: account.id, email: account.email);
+    _accessToken = authorization.accessToken;
+    _refreshToken = null;
+    _accessTokenExpiresAt = DateTime.now().add(const Duration(minutes: 50));
+    await _persistTokens();
+  }
+
+  Future<void> _refreshAndroidAccessToken() async {
+    await _ensureGoogleSignInInitialized();
+    var account = _googleAccount;
+    if (account == null) {
+      final attempt = GoogleSignIn.instance.attemptLightweightAuthentication();
+      account = attempt == null ? null : await attempt;
+    }
+    if (account == null) {
+      throw const GoogleDriveConnectionException(
+        'google_account_signed_out',
+        'Reconnect your Google account to continue using Drive.',
+      );
+    }
+
+    final authorization = await account.authorizationClient
+        .authorizationForScopes(_androidDriveScopes);
+    if (authorization == null) {
+      throw const GoogleDriveConnectionException(
+        'drive_authorization_expired',
+        'Reconnect your Google account to restore Drive access.',
+      );
+    }
+    await _saveAndroidAuthorization(account, authorization);
+  }
+
+  Future<DriveAccount?> _signInWindowsDesktop() async {
+    if (_windowsDesktopClientId.trim().isEmpty) {
+      throw const GoogleDriveConnectionException(
+        'missing_windows_desktop_client_id',
+        'The Windows Desktop OAuth client ID is not configured.',
       );
     }
 
@@ -105,7 +253,7 @@ class GoogleDriveService {
     final redirectUri = 'http://127.0.0.1:${server.port}';
     final authorizationUri = Uri.parse(_authorizationEndpoint).replace(
       queryParameters: {
-        'client_id': _desktopClientId,
+        'client_id': _windowsDesktopClientId,
         'redirect_uri': redirectUri,
         'response_type': 'code',
         'scope': _requestedScopes,
@@ -170,7 +318,7 @@ class GoogleDriveService {
       }
 
       final tokenParameters = createAuthorizationCodeTokenParameters(
-        clientId: _desktopClientId,
+        clientId: _windowsDesktopClientId,
         code: code,
         codeVerifier: verifier,
         redirectUri: redirectUri,
@@ -220,7 +368,7 @@ class GoogleDriveService {
     final issuer = info['iss'];
     final emailVerified = info['email_verified'];
     final expiry = int.tryParse(info['exp']?.toString() ?? '');
-    if (audience != _desktopClientId ||
+    if (audience != _windowsDesktopClientId ||
         email is! String ||
         email.isEmpty ||
         (emailVerified != true && emailVerified != 'true') ||
@@ -268,10 +416,19 @@ class GoogleDriveService {
   }
 
   Future<void> _refreshAccessToken() async {
-    if (_desktopClientId.trim().isEmpty) {
+    if (Platform.isAndroid) {
+      await _refreshAndroidAccessToken();
+      return;
+    }
+    if (!Platform.isWindows) {
+      throw UnsupportedError(
+        'Google Drive token refresh is currently supported on Android and Windows.',
+      );
+    }
+    if (_windowsDesktopClientId.trim().isEmpty) {
       throw const GoogleDriveConnectionException(
-        'missing_desktop_client_id',
-        'Google Desktop OAuth client ID is not configured.',
+        'missing_windows_desktop_client_id',
+        'The Windows Desktop OAuth client ID is not configured.',
       );
     }
     final refreshToken = _refreshToken;
@@ -283,7 +440,7 @@ class GoogleDriveService {
     }
 
     final tokenParameters = <String, String>{
-      'client_id': _desktopClientId,
+      'client_id': _windowsDesktopClientId,
       'refresh_token': refreshToken,
       'grant_type': 'refresh_token',
     };
@@ -307,12 +464,18 @@ class GoogleDriveService {
   }
 
   Future<void> disconnect() async {
-    await _secureStorage.delete(key: _refreshTokenKey);
-    await _secureStorage.delete(key: _accessTokenKey);
-    await _secureStorage.delete(key: _accessTokenExpiryKey);
-    await _secureStorage.delete(key: _accountIdKey);
-    await _secureStorage.delete(key: _accountEmailKey);
-    _clearApi();
+    try {
+      if (Platform.isAndroid) {
+        await _ensureGoogleSignInInitialized();
+        await GoogleSignIn.instance.disconnect();
+      }
+    } finally {
+      try {
+        await _deleteStoredTokens();
+      } finally {
+        _clearApi();
+      }
+    }
   }
 
   void close() {
@@ -326,12 +489,15 @@ class GoogleDriveService {
     final expiresAt = _accessTokenExpiresAt;
     if (user == null ||
         accessToken == null ||
-        refreshToken == null ||
         expiresAt == null) {
       throw StateError('Cannot persist an incomplete Google OAuth session.');
     }
 
-    await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
+    if (refreshToken == null) {
+      await _secureStorage.delete(key: _refreshTokenKey);
+    } else {
+      await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
+    }
     await _secureStorage.write(key: _accessTokenKey, value: accessToken);
     await _secureStorage.write(
       key: _accessTokenExpiryKey,
@@ -339,6 +505,14 @@ class GoogleDriveService {
     );
     await _secureStorage.write(key: _accountIdKey, value: user.id);
     await _secureStorage.write(key: _accountEmailKey, value: user.email);
+  }
+
+  Future<void> _deleteStoredTokens() async {
+    await _secureStorage.delete(key: _refreshTokenKey);
+    await _secureStorage.delete(key: _accessTokenKey);
+    await _secureStorage.delete(key: _accessTokenExpiryKey);
+    await _secureStorage.delete(key: _accountIdKey);
+    await _secureStorage.delete(key: _accountEmailKey);
   }
 
   void _installClient() {
@@ -360,6 +534,7 @@ class GoogleDriveService {
     _authenticatedAt = null;
     _driveApi = null;
     _currentUser = null;
+    _googleAccount = null;
     _accessToken = null;
     _refreshToken = null;
     _accessTokenExpiresAt = null;

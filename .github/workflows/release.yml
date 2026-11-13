@@ -37,7 +37,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]]; then
-            echo "Tag must use a numeric version such as v1.0.2." >&2
+            echo "Tag must use a numeric version such as v1.0.8." >&2
             exit 1
           fi
           echo "name=$version" >> "$GITHUB_OUTPUT"
@@ -46,7 +46,7 @@ jobs:
       - name: Build split release APKs
         run: >-
           flutter build apk --release --split-per-abi
-          --dart-define=GOOGLE_DESKTOP_CLIENT_ID=${{ secrets.GOOGLE_DESKTOP_CLIENT_ID }}
+          --dart-define=GOOGLE_SERVER_CLIENT_ID=${{ secrets.GOOGLE_SERVER_CLIENT_ID }}
           --build-name "${{ steps.version.outputs.name }}"
           --build-number "${{ steps.version.outputs.number }}"
 

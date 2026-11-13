@@ -1,63 +1,64 @@
-# PilahFoto
+# Loka Media
 
-Aplikasi Flutter untuk memilah foto dan video dari galeri perangkat atau Google
-Drive ke folder tujuan.
+A Flutter app for organizing photos and videos from a device gallery or Google
+Drive.
 
-## Google Drive
+## Google Drive setup
 
-1. Gunakan project Google Cloud yang sudah ada dan aktifkan Google Drive API
-   serta Google Picker API.
-2. Atur OAuth consent screen; jika masih dalam mode Testing, tambahkan akun
-   Google yang akan dipakai sebagai test user.
-3. Connect menggunakan OAuth client bertipe Desktop dari project yang sama.
-   Atur client ID sebagai compile-time define:
-
-   ```powershell
-   flutter run --dart-define=GOOGLE_DESKTOP_CLIENT_ID="<desktop-client-id>"
-   flutter build apk --release --dart-define=GOOGLE_DESKTOP_CLIENT_ID="<desktop-client-id>"
-   ```
-
-   Client OAuth Desktop tidak memerlukan client secret. Pertukaran kode dan
-   token refresh menggunakan PKCE. Alur ini menggunakan browser sistem dan
-   alamat loopback `127.0.0.1`; Google telah menghentikan dukungan redirect
-   loopback untuk aplikasi mobile, jadi uji langsung pada perangkat target.
-4. Google Picker folder lama tetap memakai OAuth client bertipe Android.
-   Daftarkan package
-   `com.example.pilah_foto` dan SHA-1 sertifikat yang menandatangani aplikasi.
-   Untuk mengambil SHA-1 debug di Windows:
+1. Enable the Google Drive API and Google Picker API in the Google Cloud
+   project used by the app.
+2. Configure the OAuth consent screen and add test accounts if the app remains
+   in Testing mode.
+3. Create an **Android** OAuth client for package
+   `com.example.pilah_foto`. Register the SHA-1 certificate fingerprint of the
+   key that signs the APK. Google Sign-In selects this Android client from the
+   package name and signing certificate; the Android client ID is not a Dart
+   `serverClientId`.
+   To read a keystore fingerprint, run:
 
    ```powershell
-   keytool -list -v -keystore "$HOME\.android\debug.keystore" -alias androiddebugkey -storepass android -keypass android
+   keytool -list -v -keystore "<keystore-path>" -alias "<key-alias>"
+   ```
+4. Create a **Web application** OAuth client in the same project. The Android
+   `google_sign_in` plugin requires this Web client ID as its `serverClientId`
+   when the project does not use `google-services.json`. Set it as the
+   `GOOGLE_SERVER_CLIENT_ID` compile-time define:
+
+   ```powershell
+   flutter run --dart-define=GOOGLE_SERVER_CLIENT_ID="<web-client-id>"
+   flutter build apk --release --dart-define=GOOGLE_SERVER_CLIENT_ID="<web-client-id>"
    ```
 
-Jika menggunakan keystore release yang berbeda, daftarkan SHA-1 release itu
-juga. APK debug memakai SHA-1 debug; APK/AAB release memakai SHA-1 dari
-signing key release. Saat ini konfigurasi Gradle release project ini masih
-menggunakan debug signing.
+   The GitHub Android Release workflow reads the same value from the
+   `GOOGLE_SERVER_CLIENT_ID` Actions secret. Do not pass an Android client ID
+   as `serverClientId`.
+5. Windows desktop builds may use a separate Desktop OAuth client with
+   `--dart-define=GOOGLE_DESKTOP_CLIENT_ID="<windows-desktop-client-id>"`.
+   The Android build does not use that client.
 
-Connect meminta scope `https://www.googleapis.com/auth/drive.file` dan `email`,
-kemudian menyimpan refresh token di secure storage perangkat.
-Scope `drive.file` membatasi akses pada file yang dibuat aplikasi atau yang
-dibuka/dipilih pengguna melalui aplikasi; scope ini tidak memberi akses penuh
-ke semua file Drive. Tombol **Pilih Folder Lama** memakai Google Picker native
-Android untuk memberi akses ke folder yang dipilih, tetap dengan scope
-`drive.file`. Aplikasi tidak mengirim `serverClientId` khusus.
-Google Drive meminta izin saat pengguna menekan **Connect** di Settings.
-Pengguna dapat memutuskan koneksi kapan saja dari halaman yang sama.
+The app requests only `drive.file`, `openid`, `email`, and `profile`; it does
+not request full Drive access. Access tokens and account details are stored
+with `flutter_secure_storage`; tokens are not stored in SharedPreferences or
+written to logs. The `drive.file` scope limits access to files created by the
+app or explicitly opened or selected by the user. The native Android folder
+picker continues to use the Android OAuth client registered above. Google
+Sign-In uses Google Play Services on Android, and users can disconnect their
+account from Settings.
 
-Connect tidak memakai Google Sign-In/GMS; autentikasi dan refresh token memakai
-browser sistem. Tombol Google Picker native untuk memilih folder lama tetap
-bergantung pada Google Play Services.
+The current Android release configuration uses debug signing. Register the
+SHA-1 fingerprint for the certificate that actually signs the APK. GitHub-hosted
+runner debug keys are not stable across runs, so reliable release sign-in
+requires a stable release signing key.
 
-Setelah terhubung:
+## Google Drive features
 
-- Pilih tujuan lokal atau folder Google Drive untuk tiap tombol pemindahan di
-  Settings.
-- Buka ikon Google Drive di halaman pemilihan album untuk menelusuri folder dan
-  foto/video di Drive.
-- Pilih tombol pindah pada item Drive untuk memindahkannya ke salah satu folder
-  tujuan Google Drive.
-- Memilih tujuan Drive langsung mengantrekan media dan menjalankan unggahan di
-  latar dengan WorkManager. Setelah batch album selesai diunggah, Android 11+
-  meminta izin satu kali untuk menghapus semua media yang berhasil diunggah.
-  Android 10 memakai alur izin per-item dari plugin galeri.
+- Choose a local folder or Google Drive folder as a destination for each move
+  action in Settings.
+- Open Google Drive from the album selection screen to browse folders and
+  photos or videos.
+- Move Drive items to a configured Google Drive destination.
+- Select an existing folder with the native Android Google Picker.
+- Choosing a Drive destination queues media for background upload with
+  WorkManager. After an album batch completes, Android 11+ requests permission
+  once to remove successfully uploaded media. Android 10 uses the gallery
+  plugin's per-item permission flow.

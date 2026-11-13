@@ -1,32 +1,45 @@
 # Automated Android Releases
 
 The GitHub Actions workflow builds and publishes an Android release when a
-version tag is pushed. The tag must use a numeric version, for example `v1.0.2`.
+version tag is pushed. The tag must use a numeric version, for example `v1.0.8`.
 The APK version is taken from the tag, and the Android build number is
 incremented automatically.
 
-## Configure Google Drive OAuth
+## Configure Google Drive Sign-In
 
-Before running the Android Release workflow, add a repository Actions secret:
+In the Google Cloud project used by the app:
 
-1. Open **Settings > Secrets and variables > Actions**.
-2. Select **New repository secret**.
-3. Set the name to `GOOGLE_DESKTOP_CLIENT_ID`.
-4. Set the value to
-   `780518349223-pq1n7od59vgj8f4jqsvej4vgurl6gmqq.apps.googleusercontent.com`
-   (the **Loka Media Desktop** OAuth client ID).
+1. Enable the Google Drive API and Google Picker API, and configure the OAuth
+   consent screen.
+2. Create an **Android** OAuth client for package `com.example.pilah_foto`.
+   Register the SHA-1 fingerprint of the certificate that signs the APK.
+   Android selects this client using the package name and signing certificate;
+   its client ID is not passed to Flutter as `serverClientId`.
+   Get a keystore fingerprint with
+   `keytool -list -v -keystore "<keystore-path>" -alias "<key-alias>"`.
+3. Create a **Web application** OAuth client in the same project. The
+   `google_sign_in` Android plugin requires this Web client ID as its
+   `serverClientId` when `google-services.json` is not used.
+4. Add a repository Actions secret named `GOOGLE_SERVER_CLIENT_ID` and set its
+   value to that Web application client ID. The release workflow passes it to
+   Flutter as `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`.
 
-The workflow passes this secret to Flutter as the
-`GOOGLE_DESKTOP_CLIENT_ID` compile-time define. Do not hardcode the client ID
-in the application source.
+Do not use the Android client ID as `serverClientId`, and do not use the
+Desktop client for Android. The Desktop OAuth client is reserved for Windows
+desktop builds.
+
+The current Android release configuration uses debug signing. The Android
+OAuth client must match the signing certificate on the APK being installed.
+GitHub-hosted runner debug keys are not stable across runs, so reliable release
+sign-in requires a stable release signing key.
 
 ## Publish a release
 
 1. Create and push a version tag:
 
    ```bash
-   git tag v1.0.2
-   git push origin v1.0.2
+   git tag v1.0.8
+   git push origin v1.0.8
    ```
 
 2. Wait for the **Android Release** workflow to finish in GitHub Actions.

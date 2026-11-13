@@ -10,8 +10,8 @@ import 'package:pilah_foto/services/app_update_service.dart';
 import 'package:pilah_foto/services/drive_folder_link.dart';
 import 'package:pilah_foto/models/local_delete_mode.dart';
 import 'package:pilah_foto/models/target_folder.dart';
-import 'package:pilah_foto/services/drive_oauth_pkce.dart';
 import 'package:pilah_foto/services/google_drive_service.dart';
+import 'package:pilah_foto/services/windows_desktop_oauth.dart';
 import 'package:pilah_foto/settings_screen.dart';
 import 'package:pilah_foto/widgets/drive_folder_picker.dart';
 import 'package:pilah_foto/widgets/video_preview_layout.dart';
@@ -113,16 +113,14 @@ void main() {
     'OAuth authorization-code exchange uses PKCE without a client secret',
     () {
       final parameters = createAuthorizationCodeTokenParameters(
-        clientId:
-            '780518349223-pq1n7od59vgj8f4jqsvej4vgurl6gmqq.apps.googleusercontent.com',
+        clientId: 'windows-desktop-client',
         code: 'authorization-code',
         codeVerifier: 'pkce-verifier',
         redirectUri: 'http://127.0.0.1:12345',
       );
 
       expect(parameters, {
-        'client_id':
-            '780518349223-pq1n7od59vgj8f4jqsvej4vgurl6gmqq.apps.googleusercontent.com',
+        'client_id': 'windows-desktop-client',
         'code': 'authorization-code',
         'code_verifier': 'pkce-verifier',
         'redirect_uri': 'http://127.0.0.1:12345',
