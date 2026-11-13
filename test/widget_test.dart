@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
+import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pilah_foto/services/app_update_service.dart';
 import 'package:pilah_foto/services/drive_folder_link.dart';
@@ -10,6 +11,7 @@ import 'package:pilah_foto/services/drive_oauth_pkce.dart';
 import 'package:pilah_foto/services/google_drive_service.dart';
 import 'package:pilah_foto/settings_screen.dart';
 import 'package:pilah_foto/widgets/drive_folder_picker.dart';
+import 'package:pilah_foto/widgets/video_preview_layout.dart';
 
 class _FakeGoogleDriveService extends GoogleDriveService {
   String? createdFolderParentId;
@@ -64,6 +66,53 @@ void main() {
     final withSecret = <String, String>{'client_id': 'desktop-client'};
     addOptionalClientSecret(withSecret, 'client-secret');
     expect(withSecret['client_secret'], 'client-secret');
+  });
+
+  test('video preview uses vertical, horizontal, and square aspect ratios', () {
+    expect(
+      videoDisplayAspectRatio(
+        const VideoParams(w: 1080, h: 1920, aspect: 9 / 16),
+      ),
+      closeTo(9 / 16, 0.001),
+    );
+    expect(
+      videoDisplayAspectRatio(
+        const VideoParams(w: 1920, h: 1080, aspect: 16 / 9),
+      ),
+      closeTo(16 / 9, 0.001),
+    );
+    expect(
+      videoDisplayAspectRatio(
+        const VideoParams(w: 1080, h: 1080, aspect: 1),
+      ),
+      1,
+    );
+  });
+
+  test('video preview retains its ratio within responsive screen bounds', () {
+    for (final aspectRatio in [9 / 16, 16 / 9, 1.0]) {
+      for (final screenSize in [
+        const Size(390, 844),
+        const Size(800, 1280),
+        const Size(1280, 800),
+      ]) {
+        final maxSize = Size(
+          screenSize.width * 0.9,
+          screenSize.height * 0.9,
+        );
+        final previewSize = videoPreviewSizeForAspectRatio(
+          aspectRatio: aspectRatio,
+          maxSize: maxSize,
+        );
+
+        expect(previewSize.width, lessThanOrEqualTo(maxSize.width));
+        expect(previewSize.height, lessThanOrEqualTo(maxSize.height));
+        expect(
+          previewSize.width / previewSize.height,
+          closeTo(aspectRatio, 0.001),
+        );
+      }
+    }
   });
 
   test('Drive folder links expose only valid folder IDs', () {

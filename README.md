@@ -14,6 +14,7 @@ Drive ke folder tujuan.
 
    ```powershell
    flutter run --dart-define=GOOGLE_DESKTOP_CLIENT_ID="<desktop-client-id>"
+   flutter build apk --release --dart-define=GOOGLE_DESKTOP_CLIENT_ID="<desktop-client-id>"
    ```
 
    Client secret opsional; jika tidak diberikan, code exchange dan refresh

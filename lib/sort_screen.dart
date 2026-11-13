@@ -17,6 +17,7 @@ import 'models/target_folder.dart';
 import 'services/drive_upload_queue.dart';
 import 'services/google_drive_service.dart';
 import 'settings_screen.dart';
+import 'widgets/video_preview_layout.dart';
 
 enum MediaTypeFilter { all, photos, videos }
 
@@ -260,6 +261,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
     if (file == null || !mounted) return;
     showDialog(
       context: context,
+      barrierColor: Colors.black,
       builder: (context) => VideoPlayerModal(file: file),
     );
   }
@@ -1421,31 +1423,69 @@ class _VideoPlayerModalState extends State<VideoPlayerModal> {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.sizeOf(context);
     return Dialog(
       backgroundColor: Colors.black,
-      insetPadding: const EdgeInsets.all(24),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: Video(controller: _controller),
-          ),
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Colors.black54,
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white, size: 28),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-          ),
-        ],
+      insetPadding: EdgeInsets.zero,
+      constraints: BoxConstraints(
+        maxWidth: screenSize.width * 0.9,
+        maxHeight: screenSize.height * 0.9,
+      ),
+      child: StreamBuilder<VideoParams>(
+        stream: _player.stream.videoParams,
+        initialData: _player.state.videoParams,
+        builder: (context, snapshot) {
+          final aspectRatio = videoDisplayAspectRatio(
+            snapshot.data ?? const VideoParams(),
+          );
+          if (aspectRatio == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final size = videoPreviewSizeForAspectRatio(
+                aspectRatio: aspectRatio,
+                maxSize: Size(constraints.maxWidth, constraints.maxHeight),
+              );
+              return SizedBox(
+                width: size.width,
+                height: size.height,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    AspectRatio(
+                      aspectRatio: aspectRatio,
+                      child: Video(
+                        controller: _controller,
+                        fit: BoxFit.contain,
+                        aspectRatio: aspectRatio,
+                      ),
+                    ),
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          color: Colors.black54,
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          icon: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }

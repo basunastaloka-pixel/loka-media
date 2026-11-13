@@ -5,6 +5,21 @@ version tag is pushed. The tag must use a numeric version, for example `v1.0.2`.
 The APK version is taken from the tag, and the Android build number is
 incremented automatically.
 
+## Configure Google Drive OAuth
+
+Before running the Android Release workflow, add a repository Actions secret:
+
+1. Open **Settings > Secrets and variables > Actions**.
+2. Select **New repository secret**.
+3. Set the name to `GOOGLE_DESKTOP_CLIENT_ID`.
+4. Set the value to
+   `780518349223-pq1n7od59vgj8f4jqsvej4vgurl6gmqq.apps.googleusercontent.com`
+   (the **Loka Media Desktop** OAuth client ID).
+
+The workflow passes this secret to Flutter as the
+`GOOGLE_DESKTOP_CLIENT_ID` compile-time define. Do not hardcode the client ID
+in the application source.
+
 ## Publish a release
 
 1. Create and push a version tag:

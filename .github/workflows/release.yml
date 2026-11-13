@@ -46,6 +46,7 @@ jobs:
       - name: Build split release APKs
         run: >-
           flutter build apk --release --split-per-abi
+          --dart-define=GOOGLE_DESKTOP_CLIENT_ID=${{ secrets.GOOGLE_DESKTOP_CLIENT_ID }}
           --build-name "${{ steps.version.outputs.name }}"
           --build-number "${{ steps.version.outputs.number }}"
 
