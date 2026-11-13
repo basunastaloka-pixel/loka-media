@@ -21,11 +21,17 @@ String createOAuthState() {
   return base64Url.encode(bytes).replaceAll('=', '');
 }
 
-void addOptionalClientSecret(
-  Map<String, String> parameters,
-  String? clientSecret,
-) {
-  if (clientSecret != null && clientSecret.trim().isNotEmpty) {
-    parameters['client_secret'] = clientSecret;
-  }
+Map<String, String> createAuthorizationCodeTokenParameters({
+  required String clientId,
+  required String code,
+  required String codeVerifier,
+  required String redirectUri,
+}) {
+  return {
+    'client_id': clientId,
+    'code': code,
+    'code_verifier': codeVerifier,
+    'redirect_uri': redirectUri,
+    'grant_type': 'authorization_code',
+  };
 }

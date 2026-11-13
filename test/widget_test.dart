@@ -58,15 +58,28 @@ void main() {
     );
   });
 
-  test('OAuth client secret is optional', () {
-    final withoutSecret = <String, String>{'client_id': 'desktop-client'};
-    addOptionalClientSecret(withoutSecret, '  ');
-    expect(withoutSecret, {'client_id': 'desktop-client'});
+  test(
+    'OAuth authorization-code exchange uses PKCE without a client secret',
+    () {
+      final parameters = createAuthorizationCodeTokenParameters(
+        clientId:
+            '780518349223-pq1n7od59vgj8f4jqsvej4vgurl6gmqq.apps.googleusercontent.com',
+        code: 'authorization-code',
+        codeVerifier: 'pkce-verifier',
+        redirectUri: 'http://127.0.0.1:12345',
+      );
 
-    final withSecret = <String, String>{'client_id': 'desktop-client'};
-    addOptionalClientSecret(withSecret, 'client-secret');
-    expect(withSecret['client_secret'], 'client-secret');
-  });
+      expect(parameters, {
+        'client_id':
+            '780518349223-pq1n7od59vgj8f4jqsvej4vgurl6gmqq.apps.googleusercontent.com',
+        'code': 'authorization-code',
+        'code_verifier': 'pkce-verifier',
+        'redirect_uri': 'http://127.0.0.1:12345',
+        'grant_type': 'authorization_code',
+      });
+      expect(parameters.containsKey('client_secret'), isFalse);
+    },
+  );
 
   test('video preview uses vertical, horizontal, and square aspect ratios', () {
     expect(

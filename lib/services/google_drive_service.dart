@@ -33,11 +33,8 @@ class GoogleDriveService {
   static const _desktopClientId = String.fromEnvironment(
     'GOOGLE_DESKTOP_CLIENT_ID',
   );
-  static const _desktopClientSecret = String.fromEnvironment(
-    'GOOGLE_DESKTOP_CLIENT_SECRET',
-  );
   static const _driveScope = 'https://www.googleapis.com/auth/drive.file';
-  static const _requestedScopes = '$_driveScope email';
+  static const _requestedScopes = 'openid email $_driveScope';
   static const _folderMimeType = 'application/vnd.google-apps.folder';
   static const _authorizationEndpoint =
       'https://accounts.google.com/o/oauth2/v2/auth';
@@ -170,14 +167,12 @@ class GoogleDriveService {
         );
       }
 
-      final tokenParameters = <String, String>{
-        'client_id': _desktopClientId,
-        'code': code,
-        'code_verifier': verifier,
-        'redirect_uri': redirectUri,
-        'grant_type': 'authorization_code',
-      };
-      addOptionalClientSecret(tokenParameters, _desktopClientSecret);
+      final tokenParameters = createAuthorizationCodeTokenParameters(
+        clientId: _desktopClientId,
+        code: code,
+        codeVerifier: verifier,
+        redirectUri: redirectUri,
+      );
       final tokenResponse = await http
           .post(
             Uri.parse(_tokenEndpoint),
@@ -290,7 +285,6 @@ class GoogleDriveService {
       'refresh_token': refreshToken,
       'grant_type': 'refresh_token',
     };
-    addOptionalClientSecret(tokenParameters, _desktopClientSecret);
     final response = await http
         .post(
           Uri.parse(_tokenEndpoint),
