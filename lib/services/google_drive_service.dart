@@ -118,7 +118,9 @@ class GoogleDriveService {
     );
 
     try {
-      final callbackFuture = server.first.timeout(const Duration(minutes: 3));
+      final callbackFuture = waitForOAuthCallback(
+        server,
+      ).timeout(const Duration(minutes: 3));
       final launched = await launchUrl(
         authorizationUri,
         mode: LaunchMode.externalApplication,

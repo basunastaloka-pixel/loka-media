@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
@@ -58,6 +60,35 @@ void main() {
     );
   });
 
+  test('OAuth callback ignores unrelated loopback requests', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final client = HttpClient();
+    addTearDown(() async {
+      client.close(force: true);
+      await server.close(force: true);
+    });
+
+    final callbackFuture = waitForOAuthCallback(server);
+    final faviconResponse = await client
+        .getUrl(Uri.parse('http://127.0.0.1:${server.port}/favicon.ico'))
+        .then((request) => request.close());
+    expect(faviconResponse.statusCode, HttpStatus.notFound);
+
+    final callbackResponseFuture = client
+        .getUrl(
+          Uri.parse(
+            'http://127.0.0.1:${server.port}/?code=auth-code&state=oauth-state',
+          ),
+        )
+        .then((request) => request.close());
+    final callback = await callbackFuture;
+    expect(callback.uri.queryParameters['code'], 'auth-code');
+    expect(callback.uri.queryParameters['state'], 'oauth-state');
+    callback.response.statusCode = HttpStatus.ok;
+    await callback.response.close();
+    expect((await callbackResponseFuture).statusCode, HttpStatus.ok);
+  });
+
   test(
     'OAuth authorization-code exchange uses PKCE without a client secret',
     () {
@@ -77,7 +108,6 @@ void main() {
         'redirect_uri': 'http://127.0.0.1:12345',
         'grant_type': 'authorization_code',
       });
-      expect(parameters.containsKey('client_secret'), isFalse);
     },
   );
 
@@ -147,6 +177,14 @@ void main() {
     expect(
       AppUpdateService.compareVersions('v1.10.0', '1.9.9'),
       greaterThan(0),
+    );
+    expect(
+      AppUpdateService.compareVersions('v1.0.7', '1.0.6+6'),
+      greaterThan(0),
+    );
+    expect(
+      AppUpdateService.compareVersions('v1.0.6', '1.0.6+6'),
+      0,
     );
     expect(AppUpdateService.compareVersions('1.2.0', 'v1.2.0'), 0);
     expect(AppUpdateService.compareVersions('1.1.9', '1.2.0'), lessThan(0));

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
@@ -34,4 +35,25 @@ Map<String, String> createAuthorizationCodeTokenParameters({
     'redirect_uri': redirectUri,
     'grant_type': 'authorization_code',
   };
+}
+
+Future<HttpRequest> waitForOAuthCallback(HttpServer server) async {
+  await for (final request in server) {
+    final uri = request.uri;
+    if (uri.path == '/' &&
+        (uri.queryParameters.containsKey('state') ||
+            uri.queryParameters.containsKey('code') ||
+            uri.queryParameters.containsKey('error'))) {
+      return request;
+    }
+
+    request.response
+      ..statusCode = HttpStatus.notFound
+      ..headers.set('Cache-Control', 'no-store');
+    await request.response.close();
+  }
+
+  throw const FormatException(
+    'Google OAuth callback server closed before receiving a response.',
+  );
 }

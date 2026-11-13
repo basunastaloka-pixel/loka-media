@@ -17,10 +17,10 @@ Drive ke folder tujuan.
    flutter build apk --release --dart-define=GOOGLE_DESKTOP_CLIENT_ID="<desktop-client-id>"
    ```
 
-   Client secret opsional; jika tidak diberikan, code exchange dan refresh
-   berjalan dengan PKCE tanpa parameter `client_secret`. Flow memakai browser
-   sistem dan loopback `127.0.0.1`; Google menyatakan loopback untuk aplikasi
-   mobile deprecated, jadi uji langsung pada perangkat target.
+   Client OAuth Desktop tidak memerlukan client secret. Pertukaran kode dan
+   token refresh menggunakan PKCE. Alur ini menggunakan browser sistem dan
+   alamat loopback `127.0.0.1`; Google telah menghentikan dukungan redirect
+   loopback untuk aplikasi mobile, jadi uji langsung pada perangkat target.
 4. Google Picker folder lama tetap memakai OAuth client bertipe Android.
    Daftarkan package
    `com.example.pilah_foto` dan SHA-1 sertifikat yang menandatangani aplikasi.
