@@ -4,6 +4,7 @@ import android.accounts.Account
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -15,6 +16,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.security.MessageDigest
 
 class MainActivity : FlutterActivity() {
     private var pendingDrivePickerResult: MethodChannel.Result? = null
@@ -31,6 +33,33 @@ class MainActivity : FlutterActivity() {
             }
             val accountEmail = call.argument<String>("accountEmail")
             pickExistingDriveFolder(accountEmail, result)
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "pilah_foto/google_sign_in_diagnostics",
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "getAndroidSignInDiagnostics") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+
+            val webClientIdResource = resources.getIdentifier(
+                "default_web_client_id",
+                "string",
+                packageName,
+            )
+            result.success(
+                mapOf(
+                    "packageName" to packageName,
+                    "signingSha1" to signingCertificateSha1(),
+                    "defaultWebClientId" to
+                        if (webClientIdResource == 0) {
+                            null
+                        } else {
+                            getString(webClientIdResource)
+                        },
+                ),
+            )
         }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -216,6 +245,25 @@ class MainActivity : FlutterActivity() {
     private fun finishDrivePickerError(code: String, message: String) {
         pendingDrivePickerResult?.error(code, message, null)
         pendingDrivePickerResult = null
+    }
+
+    @Suppress("DEPRECATION")
+    private fun signingCertificateSha1(): String? {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageManager.getPackageInfo(
+                packageName,
+                PackageManager.GET_SIGNING_CERTIFICATES,
+            ).signingInfo?.apkContentsSigners
+        } else {
+            packageManager.getPackageInfo(
+                packageName,
+                PackageManager.GET_SIGNATURES,
+            ).signatures
+        }
+        val signature = signatures?.firstOrNull() ?: return null
+        return MessageDigest.getInstance("SHA-1")
+            .digest(signature.toByteArray())
+            .joinToString(":") { "%02X".format(it.toInt() and 0xFF) }
     }
 
     private companion object {

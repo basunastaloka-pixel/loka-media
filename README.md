@@ -21,7 +21,7 @@ Drive.
    ```
 4. Create a **Web application** OAuth client in the same project. The Android
    `google_sign_in` plugin requires this Web client ID as its `serverClientId`
-   when the project does not use `google-services.json`. Set it as the
+   when no Google Services configuration is available. Set it as the
    `GOOGLE_SERVER_CLIENT_ID` compile-time define:
 
    ```powershell
@@ -31,7 +31,8 @@ Drive.
 
    The GitHub Android Release workflow reads the same value from the
    `GOOGLE_SERVER_CLIENT_ID` Actions secret. Do not pass an Android client ID
-   as `serverClientId`.
+   as `serverClientId`. When a local `google-services.json` is configured, the
+   generated Web client ID is used if this define is omitted.
 5. Windows desktop builds may use a separate Desktop OAuth client with
    `--dart-define=GOOGLE_DESKTOP_CLIENT_ID="<windows-desktop-client-id>"`.
    The Android build does not use that client.
@@ -44,6 +45,23 @@ app or explicitly opened or selected by the user. The native Android folder
 picker continues to use the Android OAuth client registered above. Google
 Sign-In uses Google Play Services on Android, and users can disconnect their
 account from Settings.
+
+### Optional local Google Services configuration
+
+The app supports an optional Firebase `google-services.json` for local Android
+builds. In **Firebase Console > Project settings > Your apps**, select the
+Firebase project linked to the same Google Cloud project as the OAuth clients.
+If there is no Android app yet, add one with package
+`com.example.pilah_foto`, register the debug and release SHA-1 fingerprints,
+then download its `google-services.json`. Place the downloaded file at
+`android/app/google-services.json`. The Google Services Gradle plugin is
+applied only when this file exists, and the file must include a Web OAuth
+client.
+
+`android/app/google-services.json.example` is a placeholder template, not a
+valid build configuration. Do not copy it unchanged. The real file is ignored
+by Git and must not be committed. GitHub Actions builds do not need this file;
+they use the `GOOGLE_SERVER_CLIENT_ID` Actions secret instead.
 
 The current Android release configuration uses debug signing. Register the
 SHA-1 fingerprint for the certificate that actually signs the APK. GitHub-hosted

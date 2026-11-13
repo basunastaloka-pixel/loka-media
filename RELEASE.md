@@ -10,19 +10,48 @@ incremented automatically.
 In the Google Cloud project used by the app:
 
 1. Enable the Google Drive API and Google Picker API, and configure the OAuth
-   consent screen.
-2. Create an **Android** OAuth client for package `com.example.pilah_foto`.
-   Register the SHA-1 fingerprint of the certificate that signs the APK.
-   Android selects this client using the package name and signing certificate;
-   its client ID is not passed to Flutter as `serverClientId`.
-   Get a keystore fingerprint with
-   `keytool -list -v -keystore "<keystore-path>" -alias "<key-alias>"`.
-3. Create a **Web application** OAuth client in the same project. The
-   `google_sign_in` Android plugin requires this Web client ID as its
-   `serverClientId` when `google-services.json` is not used.
-4. Add a repository Actions secret named `GOOGLE_SERVER_CLIENT_ID` and set its
-   value to that Web application client ID. The release workflow passes it to
-   Flutter as `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`.
+   consent screen. While the app is in Testing mode, add
+   `basun.astaloka@gmail.com` under **OAuth consent screen > Test users**.
+2. In **Google Cloud Console > APIs & Services > Credentials**, create Android
+   OAuth clients for package `com.example.pilah_foto`. Register the debug
+   certificate SHA-1:
+
+   ```text
+   F1:57:12:DC:2F:4A:92:89:29:CD:1D:20:1B:6E:85:8F:D8:D2:10:41
+   ```
+
+   Also register the release certificate SHA-1 if it differs. The current
+   release Gradle configuration uses debug signing, so compare the SHA-1
+   reported by the app's debug log with the certificate for the APK being
+   tested. If the console accepts only one SHA-1 per Android OAuth client,
+   create a separate Android client for each fingerprint, using the same
+   package name. Google selects the Android client using the package and
+   signing certificate; the Android client ID is not `serverClientId`.
+   To read a keystore fingerprint, run:
+
+   ```powershell
+   keytool -list -v -keystore "<keystore-path>" -alias "<key-alias>"
+   ```
+
+   Allow up to five minutes for credential changes to propagate.
+3. Create a **Web application** OAuth client in the same project. The Android
+   `google_sign_in` plugin requires this Web client ID as its
+   `serverClientId` when no `google-services.json` is used. Add a repository
+   Actions secret named `GOOGLE_SERVER_CLIENT_ID` with this Web client ID; the
+   release workflow passes it as
+   `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`. Do not use the Android or
+   Desktop client ID for this value.
+4. Optionally, open **Firebase Console > Project settings > Your apps** in the
+   Firebase project linked to the same Google Cloud project. If needed, add an
+   Android app with package `com.example.pilah_foto`, register its debug and
+   release SHA-1 fingerprints, and download `google-services.json`. Place the
+   file at `android/app/google-services.json`. Ensure it contains a Web OAuth
+   client (`client_type: 3`). The Google Services Gradle plugin is applied
+   only when this file exists. The provided
+   `android/app/google-services.json.example` contains placeholders only and
+   is not buildable. The real JSON is ignored by Git; do not commit it. The
+   GitHub release workflow uses `GOOGLE_SERVER_CLIENT_ID` and does not require
+   the JSON file.
 
 Do not use the Android client ID as `serverClientId`, and do not use the
 Desktop client for Android. The Desktop OAuth client is reserved for Windows

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
@@ -31,6 +32,8 @@ class GoogleDriveConnectionException implements Exception {
 
 class GoogleDriveService {
   static const _pickerChannel = MethodChannel('pilah_foto/google_drive_picker');
+  static const _signInDiagnosticsChannel =
+      MethodChannel('pilah_foto/google_sign_in_diagnostics');
   static const _windowsDesktopClientId = String.fromEnvironment(
     'GOOGLE_DESKTOP_CLIENT_ID',
   );
@@ -160,8 +163,8 @@ class GoogleDriveService {
   }
 
   Future<DriveAccount?> _signInAndroid() async {
-    await _ensureGoogleSignInInitialized();
     try {
+      await _ensureGoogleSignInInitialized();
       final account = await GoogleSignIn.instance.authenticate(
         scopeHint: _androidDriveScopes,
       );
@@ -172,6 +175,22 @@ class GoogleDriveService {
       _installClient();
       return _currentUser;
     } on GoogleSignInException catch (error) {
+      await _logAndroidSignInFailure(
+        errorCode: error.code.toString(),
+        details: error.description ?? error.toString(),
+      );
+      final description = error.description ?? '';
+      final isConfigurationError =
+          error.code == GoogleSignInExceptionCode.clientConfigurationError ||
+          description.contains('28444') ||
+          description.toLowerCase().contains('developer console');
+      if (isConfigurationError) {
+        throw const GoogleDriveConnectionException(
+          'google_sign_in_configuration_error',
+          'Google Sign-In is not configured correctly. Verify the Android '
+              'package name, signing certificate SHA-1, and Web OAuth client ID.',
+        );
+      }
       if (error.code == GoogleSignInExceptionCode.canceled) {
         await GoogleSignIn.instance.signOut();
         return null;
@@ -180,20 +199,88 @@ class GoogleDriveService {
         'google_sign_in_failed',
         'Google Sign-In failed: ${error.description ?? error.code}.',
       );
+    } on PlatformException catch (error) {
+      await _logAndroidSignInFailure(
+        errorCode: error.code,
+        details: error.message ?? error.toString(),
+      );
+      throw GoogleDriveConnectionException(
+        'google_sign_in_failed',
+        'Google Sign-In failed: ${error.message ?? error.code}.',
+      );
     }
   }
 
   Future<void> _ensureGoogleSignInInitialized() {
+    final existingInitialization = _googleSignInInitialization;
+    if (existingInitialization != null) return existingInitialization;
+
     final serverClientId = _googleServerClientId.trim();
-    if (serverClientId.isEmpty) {
-      throw const GoogleDriveConnectionException(
-        'missing_google_server_client_id',
-        'Google Sign-In is not configured. Set GOOGLE_SERVER_CLIENT_ID to the '
-            'Web OAuth client ID.',
+    final initialization = serverClientId.isEmpty
+        ? GoogleSignIn.instance.initialize()
+        : GoogleSignIn.instance.initialize(serverClientId: serverClientId);
+    _googleSignInInitialization = initialization;
+    return initialization;
+  }
+
+  Future<void> _logAndroidSignInFailure({
+    required String errorCode,
+    required String details,
+  }) async {
+    if (!kDebugMode) return;
+
+    var packageName = 'unavailable';
+    var signingSha1 = 'unavailable';
+    var effectiveClientId = _googleServerClientId.trim();
+    try {
+      final diagnostics = await _signInDiagnosticsChannel
+          .invokeMapMethod<String, Object?>('getAndroidSignInDiagnostics');
+      final reportedPackage = diagnostics?['packageName'];
+      final reportedSha1 = diagnostics?['signingSha1'];
+      final reportedClientId = diagnostics?['defaultWebClientId'];
+      if (reportedPackage is String && reportedPackage.isNotEmpty) {
+        packageName = reportedPackage;
+      }
+      if (reportedSha1 is String && reportedSha1.isNotEmpty) {
+        signingSha1 = reportedSha1;
+      }
+      if (effectiveClientId.isEmpty &&
+          reportedClientId is String &&
+          reportedClientId.isNotEmpty) {
+        effectiveClientId = reportedClientId;
+      }
+    } on PlatformException catch (error) {
+      debugPrint(
+        'Google Sign-In diagnostics unavailable: '
+        '${error.code}: ${error.message ?? ''}',
       );
+    } on MissingPluginException catch (error) {
+      debugPrint('Google Sign-In diagnostics unavailable: $error');
     }
-    return _googleSignInInitialization ??=
-        GoogleSignIn.instance.initialize(serverClientId: serverClientId);
+
+    debugPrint(
+      'Google Sign-In failure: errorCode=$errorCode; details=$details; '
+      'package=$packageName; signingSha1=$signingSha1; '
+      'serverClientId=${_maskClientId(effectiveClientId)}',
+    );
+  }
+
+  String _maskClientId(String clientId) {
+    if (clientId.isEmpty) return 'not-configured';
+    const appClientSuffix = '.apps.googleusercontent.com';
+    final separator = clientId.indexOf('-');
+    final suffixStart = clientId.lastIndexOf(appClientSuffix);
+    if (separator >= 0 && suffixStart > separator) {
+      final clientKey = clientId.substring(separator + 1, suffixStart);
+      if (clientKey.length <= 8) return 'configured (masked)';
+      return '${clientId.substring(0, separator + 1)}'
+          '${clientKey.substring(0, 4)}...'
+          '${clientKey.substring(clientKey.length - 4)}'
+          '$appClientSuffix';
+    }
+    if (clientId.length <= 12) return 'configured (masked)';
+    return '${clientId.substring(0, 4)}...'
+        '${clientId.substring(clientId.length - 4)}';
   }
 
   Future<void> _saveAndroidAuthorization(
