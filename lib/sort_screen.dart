@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
@@ -257,12 +258,38 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   }
 
   void _playVideoDialog(AssetEntity asset) async {
-    final File? file = await asset.file;
-    if (file == null || !mounted) return;
+    File? file;
+    try {
+      file = await asset.originFile;
+    } on PlatformException catch (error) {
+      debugPrint('[VideoPlayback] Could not access the original video: $error');
+    } on FileSystemException catch (error) {
+      debugPrint('[VideoPlayback] Could not access the original video: $error');
+    }
+
+    if (file == null || !await file.exists()) {
+      try {
+        file = await asset.file;
+      } on PlatformException catch (error) {
+        debugPrint('[VideoPlayback] Could not access the video file: $error');
+      } on FileSystemException catch (error) {
+        debugPrint('[VideoPlayback] Could not access the video file: $error');
+      }
+    }
+
+    final videoFile = file;
+    if (!mounted) return;
+    if (videoFile == null || !await videoFile.exists()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to access this video file.')),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       barrierColor: Colors.black,
-      builder: (context) => VideoPlayerModal(file: file),
+      builder: (context) => VideoPlayerModal(file: videoFile),
     );
   }
 
@@ -333,9 +360,14 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
           throw StateError('Google Drive did not return an uploaded file ID.');
         }
 
-        final deletedIds = await PhotoManager.editor.deleteWithIds([
-          currentAsset.id,
-        ]);
+        final preferences = await SharedPreferences.getInstance();
+        final deleteMode = LocalDeleteMode.fromPreference(
+          preferences.getString(LocalDeleteMode.preferenceKey),
+        );
+        final deletedIds = await _removeUploadedDriveAssets(
+          [currentAsset.id],
+          deleteMode,
+        );
         if (!deletedIds.contains(currentAsset.id)) {
           throw StateError(
             'The file was uploaded, but could not be removed from this device. '
@@ -541,20 +573,10 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
       Object? deletionError;
       if (uploadedAssetIds.isNotEmpty) {
         try {
-          if (deleteMode == LocalDeleteMode.moveToTrash) {
-            final assets = (await Future.wait(
-              uploadedAssetIds.map(AssetEntity.fromId),
-            )).whereType<AssetEntity>().toList();
-            if (assets.isNotEmpty) {
-              deletedAssetIds = await PhotoManager.editor.android.moveToTrash(
-                assets,
-              );
-            }
-          } else {
-            deletedAssetIds = await PhotoManager.editor.deleteWithIds(
-              uploadedAssetIds,
-            );
-          }
+          deletedAssetIds = await _removeUploadedDriveAssets(
+            uploadedAssetIds,
+            deleteMode,
+          );
         } catch (error, stackTrace) {
           deletionError = error;
           debugPrint(
@@ -618,6 +640,26 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
     } finally {
       _isCheckingDriveBatches = false;
     }
+  }
+
+  Future<List<String>> _removeUploadedDriveAssets(
+    List<String> assetIds,
+    LocalDeleteMode deleteMode,
+  ) async {
+    if (assetIds.isEmpty) return const [];
+    if (deleteMode == LocalDeleteMode.moveToTrash) {
+      if (!Platform.isAndroid) {
+        throw UnsupportedError(
+          'Moving uploaded media to Trash is only supported on Android.',
+        );
+      }
+      final assets = (await Future.wait(
+        assetIds.map(AssetEntity.fromId),
+      )).whereType<AssetEntity>().toList();
+      if (assets.isEmpty) return const [];
+      return PhotoManager.editor.android.moveToTrash(assets);
+    }
+    return PhotoManager.editor.deleteWithIds(assetIds);
   }
 
   void skipMedia() {
@@ -1406,18 +1448,73 @@ class VideoPlayerModal extends StatefulWidget {
 }
 
 class _VideoPlayerModalState extends State<VideoPlayerModal> {
-  late final Player _player = Player();
-  late final VideoController _controller = VideoController(_player);
+  late final Player _player;
+  late final VideoController _controller;
+  StreamSubscription<String>? _errorSubscription;
+  String? _playbackError;
 
   @override
   void initState() {
     super.initState();
-    _player.open(Media(widget.file.path));
+    _player = Player();
+    _controller = VideoController(_player);
+    _errorSubscription = _player.stream.error.listen((error) {
+      if (error.isNotEmpty) _reportPlaybackError(error);
+    });
+    unawaited(_openLocalVideo());
+  }
+
+  Future<void> _openLocalVideo() async {
+    try {
+      if (!await widget.file.exists()) {
+        throw FileSystemException(
+          'The selected video file is unavailable.',
+          widget.file.path,
+        );
+      }
+      await _initializeLocalVideo().timeout(const Duration(seconds: 30));
+    } on FileSystemException catch (error, stackTrace) {
+      _reportPlaybackException(error, stackTrace);
+    } on PlatformException catch (error, stackTrace) {
+      _reportPlaybackException(error, stackTrace);
+    } on TimeoutException catch (error, stackTrace) {
+      _reportPlaybackException(error, stackTrace);
+    }
+  }
+
+  Future<void> _initializeLocalVideo() async {
+    await _controller.platform.future;
+    await _player.open(
+      Media(Uri.file(widget.file.path).toString()),
+      play: true,
+    );
+    await _controller.waitUntilFirstFrameRendered;
+  }
+
+  void _reportPlaybackError(String error) {
+    debugPrint('[VideoPlayback] $error');
+    _showPlaybackError();
+  }
+
+  void _reportPlaybackException(Object error, StackTrace stackTrace) {
+    debugPrint('[VideoPlayback] Could not initialize local video: $error');
+    debugPrintStack(stackTrace: stackTrace);
+    _showPlaybackError();
+  }
+
+  void _showPlaybackError() {
+    if (!mounted || _playbackError != null) return;
+    setState(() {
+      _playbackError =
+          'Unable to play this video. Please try again or open it in your Gallery app.';
+    });
   }
 
   @override
   void dispose() {
-    _player.dispose();
+    final errorSubscription = _errorSubscription;
+    if (errorSubscription != null) unawaited(errorSubscription.cancel());
+    unawaited(_player.dispose());
     super.dispose();
   }
 
@@ -1431,61 +1528,86 @@ class _VideoPlayerModalState extends State<VideoPlayerModal> {
         maxWidth: screenSize.width * 0.9,
         maxHeight: screenSize.height * 0.9,
       ),
-      child: StreamBuilder<VideoParams>(
-        stream: _player.stream.videoParams,
-        initialData: _player.state.videoParams,
-        builder: (context, snapshot) {
-          final aspectRatio = videoDisplayAspectRatio(
-            snapshot.data ?? const VideoParams(),
-          );
-          if (aspectRatio == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      child: _playbackError == null
+          ? _buildVideoContent()
+          : _buildPlaybackError(screenSize),
+    );
+  }
 
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final size = videoPreviewSizeForAspectRatio(
-                aspectRatio: aspectRatio,
-                maxSize: Size(constraints.maxWidth, constraints.maxHeight),
-              );
-              return SizedBox(
-                width: size.width,
-                height: size.height,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    AspectRatio(
+  Widget _buildVideoContent() {
+    return StreamBuilder<VideoParams>(
+      stream: _player.stream.videoParams,
+      initialData: _player.state.videoParams,
+      builder: (context, snapshot) {
+        final aspectRatio = videoDisplayAspectRatio(
+          snapshot.data ?? const VideoParams(),
+        );
+        if (aspectRatio == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final size = videoPreviewSizeForAspectRatio(
+              aspectRatio: aspectRatio,
+              maxSize: Size(constraints.maxWidth, constraints.maxHeight),
+            );
+            return SizedBox(
+              width: size.width,
+              height: size.height,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  AspectRatio(
+                    aspectRatio: aspectRatio,
+                    child: Video(
+                      controller: _controller,
+                      fit: BoxFit.contain,
                       aspectRatio: aspectRatio,
-                      child: Video(
-                        controller: _controller,
-                        fit: BoxFit.contain,
-                        aspectRatio: aspectRatio,
-                      ),
                     ),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Colors.black54,
-                          shape: BoxShape.circle,
-                        ),
-                        child: IconButton(
-                          icon: const Icon(
-                            Icons.close,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          );
-        },
+                  ),
+                  Positioned(top: 8, right: 8, child: _buildCloseButton()),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildPlaybackError(Size screenSize) {
+    return SizedBox(
+      width: screenSize.width * 0.8,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Align(
+            alignment: Alignment.topRight,
+            child: _buildCloseButton(),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
+            child: Text(
+              _playbackError!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCloseButton() {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.black54,
+        shape: BoxShape.circle,
+      ),
+      child: IconButton(
+        icon: const Icon(Icons.close, color: Colors.white, size: 28),
+        onPressed: () => Navigator.pop(context),
       ),
     );
   }
