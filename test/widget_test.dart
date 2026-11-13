@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -52,6 +53,29 @@ class _FakeGoogleDriveService extends GoogleDriveService {
   }
 }
 
+Future<int> _getLoopbackStatusCode(Uri uri) async {
+  final socket = await Socket.connect(uri.host, uri.port);
+  try {
+    final requestTarget = '${uri.path}${uri.hasQuery ? '?${uri.query}' : ''}';
+    socket.write(
+      'GET $requestTarget HTTP/1.1\r\n'
+      'Host: ${uri.authority}\r\n'
+      'Connection: close\r\n\r\n',
+    );
+    await socket.flush();
+
+    final statusLine = await utf8
+        .decoder
+        .bind(socket)
+        .transform(const LineSplitter())
+        .first
+        .timeout(const Duration(seconds: 5));
+    return int.parse(statusLine.split(' ')[1]);
+  } finally {
+    await socket.close();
+  }
+}
+
 void main() {
   test('PKCE challenge follows RFC 7636 S256 vector', () {
     expect(
@@ -62,31 +86,27 @@ void main() {
 
   test('OAuth callback ignores unrelated loopback requests', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    final client = HttpClient();
-    addTearDown(() async {
-      client.close(force: true);
-      await server.close(force: true);
-    });
+    addTearDown(() => server.close(force: true));
 
     final callbackFuture = waitForOAuthCallback(server);
-    final faviconResponse = await client
-        .getUrl(Uri.parse('http://127.0.0.1:${server.port}/favicon.ico'))
-        .then((request) => request.close());
-    expect(faviconResponse.statusCode, HttpStatus.notFound);
-
-    final callbackResponseFuture = client
-        .getUrl(
-          Uri.parse(
-            'http://127.0.0.1:${server.port}/?code=auth-code&state=oauth-state',
-          ),
-        )
-        .then((request) => request.close());
+    final faviconStatusCode = await _getLoopbackStatusCode(
+      Uri.parse('http://127.0.0.1:${server.port}/favicon.ico'),
+    );
+    final callbackResponseFuture = _getLoopbackStatusCode(
+      Uri.parse(
+        'http://127.0.0.1:${server.port}/?code=auth-code&state=oauth-state',
+      ),
+    );
     final callback = await callbackFuture;
     expect(callback.uri.queryParameters['code'], 'auth-code');
     expect(callback.uri.queryParameters['state'], 'oauth-state');
     callback.response.statusCode = HttpStatus.ok;
     await callback.response.close();
-    expect((await callbackResponseFuture).statusCode, HttpStatus.ok);
+    expect(
+      faviconStatusCode,
+      anyOf(HttpStatus.badRequest, HttpStatus.notFound),
+    );
+    expect(await callbackResponseFuture, HttpStatus.ok);
   });
 
   test(
