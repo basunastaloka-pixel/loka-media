@@ -3,6 +3,7 @@ class TargetFolder {
   String path;
   String? driveFolderId;
   String? driveFolderName;
+  String? driveFolderParentId;
   String? driveAccountEmail;
 
   TargetFolder({
@@ -10,6 +11,7 @@ class TargetFolder {
     required this.path,
     this.driveFolderId,
     this.driveFolderName,
+    this.driveFolderParentId,
     this.driveAccountEmail,
   });
 
@@ -21,6 +23,7 @@ class TargetFolder {
     'path': path,
     'driveFolderId': driveFolderId,
     'driveFolderName': driveFolderName,
+    'driveFolderParentId': driveFolderParentId,
     'driveAccountEmail': driveAccountEmail,
   };
 
@@ -30,6 +33,7 @@ class TargetFolder {
       path: json['path'] ?? '',
       driveFolderId: json['driveFolderId'],
       driveFolderName: json['driveFolderName'],
+      driveFolderParentId: json['driveFolderParentId'],
       driveAccountEmail: json['driveAccountEmail'],
     );
   }

@@ -8,11 +8,13 @@ enum _DriveFolderTab { connectedDrive, addFolderLink }
 class DriveFolderSelection {
   final String id;
   final String name;
+  final String? parentId;
   final String accountEmail;
 
   const DriveFolderSelection({
     required this.id,
     required this.name,
+    required this.parentId,
     required this.accountEmail,
   });
 }
@@ -35,7 +37,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
   List<drive.File> _folders = [];
   final Set<String> _newFolderIds = {};
   _DriveFolderTab _activeTab = _DriveFolderTab.connectedDrive;
-  ({String id, String name})? _linkedFolder;
+  ({String id, String name, String? parentId})? _linkedFolder;
   bool _isLoading = true;
   bool _isUsingFolderLink = false;
   String? _folderLinkErrorMessage;
@@ -93,15 +95,20 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
   }
 
   void _selectCurrentFolder() {
-    _selectFolder(_path.last.id, _path.last.name);
+    _selectFolder(
+      _path.last.id,
+      _path.last.name,
+      _path.length > 1 ? _path[_path.length - 2].id : 'root',
+    );
   }
 
-  void _selectFolder(String id, String name) {
+  void _selectFolder(String id, String name, String? parentId) {
     Navigator.pop(
       context,
       DriveFolderSelection(
         id: id,
         name: name,
+        parentId: parentId,
         accountEmail: widget.driveService.currentUser!.email,
       ),
     );
@@ -127,7 +134,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
 
       if (!mounted) return;
       setState(() {
-        _linkedFolder = (id: id, name: name);
+        _linkedFolder = (id: id, name: name, parentId: folder.parents?.first);
         _folderLinkController.clear();
       });
     } on FormatException catch (error) {
@@ -368,6 +375,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                                     : () => _selectFolder(
                                         _linkedFolder!.id,
                                         _linkedFolder!.name,
+                                        _linkedFolder!.parentId,
                                       )
                               : null,
                           child: const Text('Select Folder'),
@@ -514,7 +522,11 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
               ? TextButton(
                   onPressed: folder.id == null || folder.name == null
                       ? null
-                      : () => _selectFolder(folder.id!, folder.name!),
+                      : () => _selectFolder(
+                          folder.id!,
+                          folder.name!,
+                          _path.last.id,
+                        ),
                   child: const Text('Select'),
                 )
               : const Icon(Icons.chevron_right),

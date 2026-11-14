@@ -219,6 +219,7 @@ void main() {
       path: '',
       driveFolderId: 'drive-folder-id',
       driveFolderName: 'Archive',
+      driveFolderParentId: 'drive-parent-id',
       driveAccountEmail: 'user@example.com',
     );
 
@@ -228,6 +229,7 @@ void main() {
     expect(restored.isConfigured, isTrue);
     expect(restored.driveFolderId, 'drive-folder-id');
     expect(restored.driveFolderName, 'Archive');
+    expect(restored.driveFolderParentId, 'drive-parent-id');
     expect(restored.driveAccountEmail, 'user@example.com');
   });
 
@@ -294,6 +296,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Target folders'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('ID: drive-fo…r-id'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('ID: drive-fo…r-id'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
     expect(find.text('Check for Update'), findsOneWidget);
     expect(find.text('Local'), findsAtLeastNWidgets(2));

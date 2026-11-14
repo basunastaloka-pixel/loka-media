@@ -55,6 +55,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             path: folder.path,
             driveFolderId: folder.driveFolderId,
             driveFolderName: folder.driveFolderName,
+            driveFolderParentId: folder.driveFolderParentId,
             driveAccountEmail: folder.driveAccountEmail,
           ),
         )
@@ -120,6 +121,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _folders[index].label = autoFolderName;
         _folders[index].driveFolderId = null;
         _folders[index].driveFolderName = null;
+        _folders[index].driveFolderParentId = null;
         _folders[index].driveAccountEmail = null;
         _controllers[index].text = autoFolderName;
       });
@@ -280,6 +282,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ..path = ''
         ..driveFolderId = selection.id
         ..driveFolderName = selection.name
+        ..driveFolderParentId = selection.parentId
         ..driveAccountEmail = selection.accountEmail
         ..label = selection.name;
       _controllers[index].text = selection.name;
@@ -583,17 +586,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                                 ),
                                                 const SizedBox(width: 6),
                                                 Expanded(
-                                                  child: Text(
-                                                    folder.driveFolderName ??
-                                                        'Selected folder',
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      color: Theme.of(context)
-                                                          .colorScheme
-                                                          .onSurfaceVariant,
-                                                    ),
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        folder.driveFolderName ??
+                                                            'Selected folder',
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: Theme.of(context)
+                                                              .colorScheme
+                                                              .onSurfaceVariant,
+                                                        ),
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                      if (folder
+                                                              .driveFolderId !=
+                                                          null)
+                                                        Text(
+                                                          'ID: ${_shortDriveFolderId(folder.driveFolderId!)}',
+                                                          style: TextStyle(
+                                                            fontSize: 10,
+                                                            color: Theme.of(context)
+                                                                .colorScheme
+                                                                .onSurfaceVariant,
+                                                          ),
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                        ),
+                                                    ],
                                                   ),
                                                 ),
                                               ],
@@ -725,4 +749,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     return folder.path.isEmpty ? 'No destination selected' : folder.path;
   }
+
+  String _shortDriveFolderId(String id) => id.length <= 12
+      ? id
+      : '${id.substring(0, 8)}…${id.substring(id.length - 4)}';
 }

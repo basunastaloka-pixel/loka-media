@@ -20,6 +20,7 @@ import 'services/google_drive_service.dart';
 import 'services/local_trash_service.dart';
 import 'settings_screen.dart';
 import 'trash_screen.dart';
+import 'widgets/drive_folder_picker.dart';
 import 'widgets/video_preview_layout.dart';
 
 enum MediaTypeFilter { all, photos, videos }
@@ -347,10 +348,28 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
     if (target.isDriveDestination) {
       setState(() => _isMovingFile = true);
       try {
-        await _driveService.validateDestinationFolder(target.driveFolderId!);
+        final folder = await _driveService.validateDestinationFolder(
+          target.driveFolderId!,
+          folderName: target.driveFolderName,
+          parentId: target.driveFolderParentId,
+        );
+        if (folder.id != target.driveFolderId) {
+          target
+            ..driveFolderId = folder.id
+            ..driveFolderName = folder.name
+            ..driveFolderParentId = folder.parents?.isNotEmpty == true
+                ? folder.parents!.first
+                : target.driveFolderParentId;
+          await _saveFoldersToPrefs();
+          if (mounted) setState(() {});
+        }
       } catch (error) {
         if (!mounted) return;
         setState(() => _isMovingFile = false);
+        if (error is DriveDestinationFolderException && error.wasRecreated) {
+          await _showDriveFolderRecreatedDialog(target, error);
+          return;
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -465,6 +484,66 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
           ),
         ),
       );
+    }
+  }
+
+  Future<void> _showDriveFolderRecreatedDialog(
+    TargetFolder target,
+    DriveDestinationFolderException error,
+  ) async {
+    final openPicker = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Destination folder not available'),
+        content: Text(error.toString()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Open Drive picker'),
+          ),
+        ],
+      ),
+    );
+    if (openPicker != true || !mounted) return;
+
+    final selection = await showModalBottomSheet<DriveFolderSelection>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: MediaQuery.removeViewInsets(
+          context: sheetContext,
+          removeBottom: true,
+          child: DriveFolderPickerModal(driveService: _driveService),
+        ),
+      ),
+    );
+    if (selection == null || !mounted) return;
+
+    target
+      ..driveFolderId = selection.id
+      ..driveFolderName = selection.name
+      ..driveFolderParentId = selection.parentId
+      ..driveAccountEmail = selection.accountEmail;
+    try {
+      await _saveFoldersToPrefs();
+      if (mounted) setState(() {});
+    } catch (saveError) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Unable to save the Drive destination: $saveError'),
+          ),
+        );
+      }
     }
   }
 
@@ -1663,8 +1742,7 @@ class _VideoPlayerModalState extends State<VideoPlayerModal> {
   void _showPlaybackError() {
     if (!mounted || _playbackError != null) return;
     setState(() {
-      _playbackError =
-          'Unable to play this video. Please try again or open it in your Gallery app.';
+      _playbackError = 'Unable to play this video. Please try again or open it in your Gallery app.';
     });
   }
 
@@ -1740,10 +1818,7 @@ class _VideoPlayerModalState extends State<VideoPlayerModal> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Align(
-            alignment: Alignment.topRight,
-            child: _buildCloseButton(),
-          ),
+          Align(alignment: Alignment.topRight, child: _buildCloseButton()),
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
             child: Text(

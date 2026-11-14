@@ -31,18 +31,26 @@ class GoogleDriveConnectionException implements Exception {
 }
 
 class DriveDestinationFolderException implements Exception {
-  const DriveDestinationFolderException();
+  final String? folderName;
+  final bool wasRecreated;
+
+  const DriveDestinationFolderException({
+    this.folderName,
+    this.wasRecreated = false,
+  });
 
   @override
-  String toString() =>
-      'Destination folder not found. It may have been moved or deleted in '
-      'Drive. Check the folder and try again.';
+  String toString() => wasRecreated && folderName != null
+      ? "Folder '$folderName' was recreated in Drive. Please re-pick the destination."
+      : 'Destination folder not found. It may have been moved or deleted in '
+            'Drive. Check the folder and try again.';
 }
 
 class GoogleDriveService {
   static const _pickerChannel = MethodChannel('pilah_foto/google_drive_picker');
-  static const _signInDiagnosticsChannel =
-      MethodChannel('pilah_foto/google_sign_in_diagnostics');
+  static const _signInDiagnosticsChannel = MethodChannel(
+    'pilah_foto/google_sign_in_diagnostics',
+  );
   static const _windowsDesktopClientId = String.fromEnvironment(
     'GOOGLE_DESKTOP_CLIENT_ID',
   );
@@ -362,9 +370,8 @@ class GoogleDriveService {
     );
 
     try {
-      final callbackFuture = waitForOAuthCallback(
-        server,
-      ).timeout(const Duration(minutes: 3));
+      final callbackFuture = waitForOAuthCallback(server)
+          .timeout(const Duration(minutes: 3));
       final launched = await launchUrl(
         authorizationUri,
         mode: LaunchMode.externalApplication,
@@ -583,9 +590,7 @@ class GoogleDriveService {
     final accessToken = _accessToken;
     final refreshToken = _refreshToken;
     final expiresAt = _accessTokenExpiresAt;
-    if (user == null ||
-        accessToken == null ||
-        expiresAt == null) {
+    if (user == null || accessToken == null || expiresAt == null) {
       throw StateError('Cannot persist an incomplete Google OAuth session.');
     }
 
@@ -671,7 +676,7 @@ class GoogleDriveService {
     final folder = await api.files.get(
       folderId,
       supportsAllDrives: true,
-      $fields: 'id,name,mimeType,trashed,capabilities(canAddChildren)',
+      $fields: 'id,name,mimeType,trashed,parents,capabilities(canAddChildren)',
     ) as drive.File;
     if (folder.id != folderId ||
         folder.name == null ||
@@ -685,34 +690,79 @@ class GoogleDriveService {
     return folder;
   }
 
-  Future<drive.File> validateDestinationFolder(String folderId) async {
+  Future<drive.File> validateDestinationFolder(
+    String folderId, {
+    String? folderName,
+    String? parentId,
+  }) async {
+    late final drive.File folder;
     try {
       final api = await _requireApi();
-      final folder = await api.files.get(
+      folder = await api.files.get(
         folderId,
         supportsAllDrives: true,
-        $fields: 'id,name,mimeType,trashed,parents',
+        $fields:
+            'id,name,mimeType,trashed,parents,capabilities(canAddChildren)',
       ) as drive.File;
-      if (folder.id != folderId ||
-          folder.name == null ||
-          folder.mimeType != _folderMimeType ||
-          folder.trashed == true ||
-          folder.capabilities?.canAddChildren != true) {
-        throw const DriveDestinationFolderException();
-      }
-      return folder;
-    } on DriveDestinationFolderException {
-      rethrow;
     } catch (error) {
       final message = error.toString().toLowerCase();
-      if (message.contains('404') ||
-          message.contains('403') ||
-          message.contains('not found') ||
-          message.contains('forbidden')) {
+      if (message.contains('404') || message.contains('not found')) {
+        return _findRecreatedDestinationFolder(
+          folderName: folderName,
+          parentId: parentId,
+        );
+      }
+      if (message.contains('403') || message.contains('forbidden')) {
         throw const DriveDestinationFolderException();
       }
       rethrow;
     }
+
+    if (folder.id != folderId ||
+        folder.name == null ||
+        folder.mimeType != _folderMimeType ||
+        folder.trashed == true ||
+        folder.capabilities?.canAddChildren != true) {
+      throw const DriveDestinationFolderException();
+    }
+    return folder;
+  }
+
+  Future<drive.File> _findRecreatedDestinationFolder({
+    required String? folderName,
+    required String? parentId,
+  }) async {
+    if (folderName == null || folderName.isEmpty || parentId == null) {
+      throw DriveDestinationFolderException(
+        folderName: folderName,
+        wasRecreated: folderName != null,
+      );
+    }
+
+    final escapedName = folderName
+        .replaceAll(r'\', r'\\')
+        .replaceAll("'", r"\'");
+    final candidates = await _listChildren(
+      parentId,
+      "mimeType = '$_folderMimeType' and name = '$escapedName'",
+    );
+    final matches = candidates
+        .where(
+          (folder) =>
+              folder.name == folderName &&
+              folder.id != null &&
+              folder.mimeType == _folderMimeType &&
+              folder.trashed != true &&
+              folder.capabilities?.canAddChildren == true,
+        )
+        .toList();
+    if (matches.length != 1) {
+      throw DriveDestinationFolderException(
+        folderName: folderName,
+        wasRecreated: true,
+      );
+    }
+    return matches.single;
   }
 
   Future<drive.File?> pickExistingFolder() async {
@@ -822,7 +872,7 @@ class GoogleDriveService {
         orderBy: 'name',
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
-        $fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,thumbnailLink,parents,size)',
+        $fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,thumbnailLink,parents,size,trashed,capabilities(canAddChildren))',
       );
       files.addAll(response.files ?? const []);
       pageToken = response.nextPageToken;
