@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../services/app_localizations.dart';
 import '../services/local_trash_service.dart';
 import 'video_preview_layout.dart';
 
@@ -304,7 +305,7 @@ class _TrashVideoPreviewDialogState extends State<TrashVideoPreviewDialog> {
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Text(
-                  _errorMessage!,
+                  context.tr(_errorMessage!),
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white),
                 ),

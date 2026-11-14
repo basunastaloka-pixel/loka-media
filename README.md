@@ -3,6 +3,12 @@
 A Flutter app for organizing photos and videos from a device gallery or Google
 Drive.
 
+## App tour and language
+
+The App Tour appears on first install. Finish or skip it to continue to the app;
+you can open it again from Settings. Choose English or Bahasa Indonesia in
+Settings, and the language preference is saved on the device.
+
 ## Google Drive setup
 
 1. Enable the Google Drive API and Google Picker API in the Google Cloud

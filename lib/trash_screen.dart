@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'services/app_localizations.dart';
 import 'services/local_trash_service.dart';
 import 'widgets/trash_media_thumbnail.dart';
 
@@ -56,7 +57,9 @@ class _TrashScreenState extends State<TrashScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Unable to load Trash: $error';
+        _errorMessage = context.tr('Unable to load Trash: {error}', {
+          'error': error,
+        });
         _isLoading = false;
       });
     }
@@ -73,7 +76,13 @@ class _TrashScreenState extends State<TrashScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to save Trash sort order: $error')),
+          SnackBar(
+            content: Text(
+              context.tr('Unable to save Trash sort order: {error}', {
+                'error': error,
+              }),
+            ),
+          ),
         );
       }
     }
@@ -96,8 +105,10 @@ class _TrashScreenState extends State<TrashScreen> {
     await _runItemAction(
       [item],
       _trashService.restore,
-      successMessage: '"${item.fileName}" was restored.',
-      errorPrefix: 'Unable to restore this file',
+      successMessage: context.tr('"{file}" was restored.', {
+        'file': item.fileName,
+      }),
+      errorPrefix: context.tr('Unable to restore this file'),
     );
   }
 
@@ -109,8 +120,10 @@ class _TrashScreenState extends State<TrashScreen> {
     await _runItemAction(
       selected,
       _trashService.restore,
-      successMessage: '${selected.length} item(s) restored.',
-      errorPrefix: 'Unable to restore selected files',
+      successMessage: context.tr('{count} item(s) restored.', {
+        'count': selected.length,
+      }),
+      errorPrefix: context.tr('Unable to restore selected files'),
     );
   }
 
@@ -118,28 +131,32 @@ class _TrashScreenState extends State<TrashScreen> {
     final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete permanently?'),
+        title: Text(context.tr('Delete permanently?')),
         content: Text(
-          'This cannot be undone. Delete ${item.fileName} permanently?',
+          context.tr('This cannot be undone. Delete {file} permanently?', {
+            'file': item.fileName,
+          }),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(context.tr('Cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete Permanently'),
+            child: Text(context.tr('Delete Permanently')),
           ),
         ],
       ),
     );
-    if (shouldDelete != true) return;
+    if (shouldDelete != true || !mounted) return;
     await _runItemAction(
       [item],
       _trashService.deletePermanently,
-      successMessage: '"${item.fileName}" was permanently deleted.',
-      errorPrefix: 'Unable to delete this file',
+      successMessage: context.tr('"{file}" was permanently deleted.', {
+        'file': item.fileName,
+      }),
+      errorPrefix: context.tr('Unable to delete this file'),
     );
   }
 
@@ -155,28 +172,33 @@ class _TrashScreenState extends State<TrashScreen> {
     final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete permanently?'),
+        title: Text(context.tr('Delete permanently?')),
         content: Text(
-          'This cannot be undone. Delete ${selected.length} selected files permanently?',
+          context.tr(
+            'This cannot be undone. Delete {count} selected files permanently?',
+            {'count': selected.length},
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(context.tr('Cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete Permanently'),
+            child: Text(context.tr('Delete Permanently')),
           ),
         ],
       ),
     );
-    if (shouldDelete != true) return;
+    if (shouldDelete != true || !mounted) return;
     await _runItemAction(
       selected,
       _trashService.deletePermanently,
-      successMessage: '${selected.length} item(s) permanently deleted.',
-      errorPrefix: 'Unable to delete selected files',
+      successMessage: context.tr('{count} item(s) permanently deleted.', {
+        'count': selected.length,
+      }),
+      errorPrefix: context.tr('Unable to delete selected files'),
     );
   }
 
@@ -198,8 +220,16 @@ class _TrashScreenState extends State<TrashScreen> {
       await _loadItems();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$errorPrefix: $error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.tr('{prefix}: {error}', {
+                'prefix': errorPrefix,
+                'error': error,
+              }),
+            ),
+          ),
+        );
         await _loadItems();
       }
     } finally {
@@ -232,7 +262,11 @@ class _TrashScreenState extends State<TrashScreen> {
             errorBuilder: (_, _, _) => Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
-                child: Text('Unable to preview ${item.fileName}.'),
+                child: Text(
+                  context.tr('Unable to preview {file}.', {
+                    'file': item.fileName,
+                  }),
+                ),
               ),
             ),
           ),
@@ -245,36 +279,44 @@ class _TrashScreenState extends State<TrashScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Trash'),
+        title: Text(context.tr('Trash')),
         actions: [
           PopupMenuButton<TrashSortOrder>(
-            tooltip: 'Sort Trash',
+            tooltip: context.tr('Sort Trash'),
             initialValue: _sortOrder,
             onSelected: _changeSortOrder,
             itemBuilder: (context) => [
-              _sortMenuItem(TrashSortOrder.newestDeleted, 'Newest first'),
-              _sortMenuItem(TrashSortOrder.oldestDeleted, 'Oldest first'),
+              _sortMenuItem(
+                TrashSortOrder.newestDeleted,
+                context.tr('Newest first'),
+              ),
+              _sortMenuItem(
+                TrashSortOrder.oldestDeleted,
+                context.tr('Oldest first'),
+              ),
               _sortMenuItem(
                 TrashSortOrder.newestOriginal,
-                'Newest by original date',
+                context.tr('Newest by original date'),
               ),
               _sortMenuItem(
                 TrashSortOrder.oldestOriginal,
-                'Oldest by original date',
+                context.tr('Oldest by original date'),
               ),
             ],
             icon: const Icon(Icons.sort),
           ),
           IconButton(
             onPressed: _toggleViewMode,
-            tooltip: _isGridView ? 'Show as a list' : 'Show as a grid',
+            tooltip: context.tr(
+              _isGridView ? 'Show as a list' : 'Show as a grid',
+            ),
             icon: Icon(
               _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
             ),
           ),
           IconButton(
             onPressed: _isLoading ? null : _loadItems,
-            tooltip: 'Refresh Trash',
+            tooltip: context.tr('Refresh Trash'),
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -312,8 +354,10 @@ class _TrashScreenState extends State<TrashScreen> {
         color: colors.primaryContainer.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: const Text(
-        'Files in Trash are kept for 30 days, then deleted permanently. Tap Restore to bring back.',
+      child: Text(
+        context.tr(
+          'Files in Trash are kept for 30 days, then deleted permanently. Tap Restore to bring back.',
+        ),
         style: TextStyle(fontSize: 12),
       ),
     );
@@ -334,7 +378,7 @@ class _TrashScreenState extends State<TrashScreen> {
               const SizedBox(height: 12),
               FilledButton.tonal(
                 onPressed: _loadItems,
-                child: const Text('Retry'),
+                child: Text(context.tr('Retry')),
               ),
             ],
           ),
@@ -342,7 +386,7 @@ class _TrashScreenState extends State<TrashScreen> {
       );
     }
     if (_items.isEmpty) {
-      return const Center(child: Text('Your Trash is empty.'));
+      return Center(child: Text(context.tr('Your Trash is empty.')));
     }
     if (_isGridView) return _buildGridView(context);
     return _buildListView();
@@ -400,7 +444,7 @@ class _TrashScreenState extends State<TrashScreen> {
                         TextButton.icon(
                           onPressed: () => _restore(item),
                           icon: const Icon(Icons.restore, size: 16),
-                          label: const Text('Restore'),
+                          label: Text(context.tr('Restore')),
                           style: TextButton.styleFrom(
                             visualDensity: VisualDensity.compact,
                             padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -409,7 +453,7 @@ class _TrashScreenState extends State<TrashScreen> {
                         TextButton.icon(
                           onPressed: () => _deletePermanently(item),
                           icon: const Icon(Icons.delete_forever, size: 16),
-                          label: const Text('Delete Permanently'),
+                          label: Text(context.tr('Delete Permanently')),
                           style: TextButton.styleFrom(
                             visualDensity: VisualDensity.compact,
                             padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -509,19 +553,26 @@ class _TrashScreenState extends State<TrashScreen> {
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         Text(
-          'Folder: ${_originalFolderName(item.originalPath)}',
+          context.tr('Folder: {folder}', {
+            'folder': context.tr(_originalFolderName(item.originalPath)),
+          }),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: bodyStyle,
         ),
         Text(
-          'Deleted ${DateFormat.yMMMd().add_jm().format(item.deletedAt)}',
+          context.tr('Deleted {date}', {
+            'date': DateFormat('dd/MM/yyyy HH:mm').format(item.deletedAt),
+          }),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: bodyStyle,
         ),
         Text(
-          '$remaining ${remaining == 1 ? 'day' : 'days'} left',
+          context.tr(
+            remaining == 1 ? '{count} day left' : '{count} days left',
+            {'count': remaining},
+          ),
           style: bodyStyle?.copyWith(
             color: remaining <= 3
                 ? Theme.of(context).colorScheme.error
@@ -544,7 +595,7 @@ class _TrashScreenState extends State<TrashScreen> {
               child: OutlinedButton.icon(
                 onPressed: _busyItems.isEmpty ? _restoreSelected : null,
                 icon: const Icon(Icons.restore),
-                label: Text('Restore ($count)'),
+                label: Text(context.tr('Restore ({count})', {'count': count})),
               ),
             ),
             const SizedBox(width: 8),
@@ -554,7 +605,7 @@ class _TrashScreenState extends State<TrashScreen> {
                     ? _deleteSelectedPermanently
                     : null,
                 icon: const Icon(Icons.delete_forever),
-                label: const Text('Delete Permanently'),
+                label: Text(context.tr('Delete Permanently')),
               ),
             ),
           ],

@@ -20,6 +20,7 @@ import 'services/google_drive_service.dart';
 import 'services/local_trash_service.dart';
 import 'settings_screen.dart';
 import 'trash_screen.dart';
+import 'services/app_localizations.dart';
 import 'widgets/drive_folder_picker.dart';
 import 'widgets/video_preview_layout.dart';
 
@@ -148,7 +149,12 @@ class _SortScreenState extends State<SortScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Unable to restore the Google Drive session: $error'),
+            content: Text(
+              context.tr(
+                'Unable to restore the Google Drive session: {error}',
+                {'error': error},
+              ),
+            ),
           ),
         );
       }
@@ -190,8 +196,10 @@ class _SortScreenState extends State<SortScreen>
       setState(() => _isLoadingAlbums = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Permission to access the gallery was denied.'),
+          SnackBar(
+            content: Text(
+              context.tr('Permission to access the gallery was denied.'),
+            ),
           ),
         );
       }
@@ -298,7 +306,9 @@ class _SortScreenState extends State<SortScreen>
     if (!mounted) return;
     if (videoFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to access this video file.')),
+        SnackBar(
+          content: Text(context.tr('Unable to access this video file.')),
+        ),
       );
       return;
     }
@@ -306,7 +316,9 @@ class _SortScreenState extends State<SortScreen>
     if (!mounted) return;
     if (!videoExists) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to access this video file.')),
+        SnackBar(
+          content: Text(context.tr('Unable to access this video file.')),
+        ),
       );
       return;
     }
@@ -333,8 +345,8 @@ class _SortScreenState extends State<SortScreen>
 
     if (target.isDriveDestination && !_driveService.isConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Connect Google Drive in Settings first.'),
+        SnackBar(
+          content: Text(context.tr('Connect Google Drive in Settings first.')),
         ),
       );
       return;
@@ -346,7 +358,10 @@ class _SortScreenState extends State<SortScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Reconnect Google Drive as ${target.driveAccountEmail} to use this destination.',
+            context.tr(
+              'Reconnect Google Drive as {account} to use this destination.',
+              {'account': target.driveAccountEmail!},
+            ),
           ),
         ),
       );
@@ -382,8 +397,11 @@ class _SortScreenState extends State<SortScreen>
           SnackBar(
             content: Text(
               error is DriveDestinationFolderException
-                  ? error.toString()
-                  : 'Unable to verify the Drive destination: $error',
+                  ? _destinationErrorMessage(error)
+                  : context.tr(
+                      'Unable to verify the Drive destination: {error}',
+                      {'error': error},
+                    ),
             ),
           ),
         );
@@ -487,8 +505,10 @@ class _SortScreenState extends State<SortScreen>
         SnackBar(
           content: Text(
             displayError is DriveDestinationFolderException
-                ? displayError.toString()
-                : 'Failed to move file: $displayError',
+                ? _destinationErrorMessage(displayError)
+                : context.tr('Failed to move file: {error}', {
+                    'error': displayError,
+                  }),
           ),
         ),
       );
@@ -513,7 +533,9 @@ class _SortScreenState extends State<SortScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '"${item.fileName}" moved to Trash. Restorable for 30 days.',
+            context.tr('"{file}" moved to Trash. Restorable for 30 days.', {
+              'file': item.fileName,
+            }),
           ),
         ),
       );
@@ -522,7 +544,13 @@ class _SortScreenState extends State<SortScreen>
       if (!mounted) return;
       setState(() => _isMovingFile = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unable to move this item to Trash: $error')),
+        SnackBar(
+          content: Text(
+            context.tr('Unable to move this item to Trash: {error}', {
+              'error': error,
+            }),
+          ),
+        ),
       );
     }
   }
@@ -534,16 +562,16 @@ class _SortScreenState extends State<SortScreen>
     final openPicker = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Destination folder not available'),
-        content: Text(error.toString()),
+        title: Text(context.tr('Destination folder not available')),
+        content: Text(_destinationErrorMessage(error)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+            child: Text(context.tr('Cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Open Drive picker'),
+            child: Text(context.tr('Open Drive picker')),
           ),
         ],
       ),
@@ -580,7 +608,11 @@ class _SortScreenState extends State<SortScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Unable to save the Drive destination: $saveError'),
+            content: Text(
+              context.tr('Unable to save the Drive destination: {error}', {
+                'error': saveError,
+              }),
+            ),
           ),
         );
       }
@@ -686,8 +718,10 @@ class _SortScreenState extends State<SortScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Could not queue "${asset.title ?? 'media'}" for Drive upload: '
-              '$error',
+              context.tr('Could not queue {file} for Drive upload: {error}', {
+                'file': asset.title ?? context.tr('media'),
+                'error': error,
+              }),
             ),
           ),
         );
@@ -784,26 +818,41 @@ class _SortScreenState extends State<SortScreen>
         if (deletedCount > 0) {
           messages.add(
             deleteMode == LocalDeleteMode.moveToTrash
-                ? 'Moved $deletedCount local item(s) to Trash.'
-                : 'Permanently deleted $deletedCount local item(s).',
+                ? context.tr('Moved {count} local item(s) to Trash.', {
+                    'count': deletedCount,
+                  })
+                : context.tr('Permanently deleted {count} local item(s).', {
+                    'count': deletedCount,
+                  }),
           );
         }
         if (notDeletedCount > 0) {
           messages.add(
-            'The Drive upload finished, but $notDeletedCount original(s) '
-            'remain on this device.',
+            context.tr(
+              'The Drive upload finished, but {count} original(s) remain on this device.',
+              {'count': notDeletedCount},
+            ),
           );
         }
         if (failedCount > 0) {
           messages.add(
-            '$failedCount upload(s) failed; their original files were kept.',
+            context.tr(
+              '{count} upload(s) failed; their original files were kept.',
+              {'count': failedCount},
+            ),
           );
         }
         if (missingDestinationCount > 0) {
-          messages.add(const DriveDestinationFolderException().toString());
+          messages.add(
+            _destinationErrorMessage(const DriveDestinationFolderException()),
+          );
         }
         if (deletionError != null) {
-          messages.add('Bulk deletion could not be completed: $deletionError');
+          messages.add(
+            context.tr('Bulk deletion could not be completed: {error}', {
+              'error': deletionError,
+            }),
+          );
         }
         if (messages.isNotEmpty) {
           ScaffoldMessenger.of(context)
@@ -885,6 +934,18 @@ class _SortScreenState extends State<SortScreen>
     });
   }
 
+  String _destinationErrorMessage(DriveDestinationFolderException error) {
+    if (error.wasRecreated && error.folderName != null) {
+      return context.tr(
+        "Folder '{folder}' was recreated in Drive. Please re-pick the destination.",
+        {'folder': error.folderName!},
+      );
+    }
+    return context.tr(
+      'Destination folder not found. It may have been moved or deleted in Drive. Check the folder and try again.',
+    );
+  }
+
   Future<void> openSettings() async {
     _dismissDestinationHint();
     if (_isSettingsOpen) return;
@@ -909,6 +970,7 @@ class _SortScreenState extends State<SortScreen>
       _isSettingsOpen = false;
       if (mounted) setState(() {});
     }
+
   }
 
   void _showDestinationRequiredBanner(TargetFolder target) {
@@ -919,11 +981,13 @@ class _SortScreenState extends State<SortScreen>
     final controller = messenger.showSnackBar(
       SnackBar(
         content: Text(
-          'Choose a destination for "${target.label}" in Settings first.',
+          context.tr('Choose a destination for "{folder}" in Settings first.', {
+            'folder': target.label,
+          }),
         ),
         duration: const Duration(seconds: 5),
         action: SnackBarAction(
-          label: 'SETTINGS',
+          label: context.tr('SETTINGS'),
           onPressed: () {
             _dismissDestinationHint();
             openSettings();
@@ -980,14 +1044,20 @@ class _SortScreenState extends State<SortScreen>
     if (_selectedAlbum == null) {
       return Scaffold(
         appBar: AppBar(
-          title: const Column(
+          title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Loka Files', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Text(
+                'Loka Files',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
               Text(
-                'Choose an album to get started',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+                context.tr('Choose an album to get started'),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.normal,
+                ),
               ),
             ],
           ),
@@ -995,7 +1065,7 @@ class _SortScreenState extends State<SortScreen>
             TextButton.icon(
               onPressed: _openTrash,
               icon: const Icon(Icons.delete_outline),
-              label: const Text('Open Trash'),
+              label: Text(context.tr('Open Trash')),
               style: TextButton.styleFrom(
                 visualDensity: VisualDensity.compact,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1005,7 +1075,7 @@ class _SortScreenState extends State<SortScreen>
               IconButton(
                 onPressed: _openDriveSource,
                 icon: const Icon(Icons.cloud_outlined),
-                tooltip: 'Browse Google Drive',
+                tooltip: context.tr('Browse Google Drive'),
               ),
             IconButton(
               onPressed: () {
@@ -1016,12 +1086,14 @@ class _SortScreenState extends State<SortScreen>
                     ? Icons.grid_view_rounded
                     : Icons.view_list_rounded,
               ),
-              tooltip: _albumListView ? 'Show thumbnails' : 'Show as a list',
+              tooltip: context.tr(
+                _albumListView ? 'Show thumbnails' : 'Show as a list',
+              ),
             ),
             IconButton(
               onPressed: openSettings,
               icon: const Icon(Icons.settings),
-              tooltip: 'Target folder settings',
+              tooltip: context.tr('Target folder settings'),
             ),
           ],
         ),
@@ -1043,12 +1115,12 @@ class _SortScreenState extends State<SortScreen>
     if (currentIndex >= total && total > 0) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Loka Files • Sorting complete'),
+          title: Text(context.tr('Loka Files • Sorting complete')),
           actions: [
             TextButton.icon(
               onPressed: _openTrash,
               icon: const Icon(Icons.delete_outline),
-              label: const Text('Open Trash'),
+              label: Text(context.tr('Open Trash')),
             ),
           ],
         ),
@@ -1060,7 +1132,9 @@ class _SortScreenState extends State<SortScreen>
               const Icon(Icons.check_circle_outline, size: 80),
               const SizedBox(height: 16),
               Text(
-                'All media in "${_selectedAlbum!.name}" have been processed.',
+                context.tr('All media in "{album}" have been processed.', {
+                  'album': _selectedAlbum!.name,
+                }),
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -1072,9 +1146,13 @@ class _SortScreenState extends State<SortScreen>
                   children: movedCounts.entries.map((e) {
                     return ListTile(
                       dense: true,
-                      title: Text(e.key),
+                      title: Text(
+                        e.key == 'Trash' || e.key == 'Skipped'
+                            ? context.tr(e.key)
+                            : e.key,
+                      ),
                       trailing: Text(
-                        '${e.value} items',
+                        context.tr('{count} items', {'count': e.value}),
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                     );
@@ -1088,7 +1166,7 @@ class _SortScreenState extends State<SortScreen>
                 ),
                 onPressed: _kembaliKePilihFolder,
                 icon: const Icon(Icons.folder_open),
-                label: const Text('Select Another Folder'),
+                label: Text(context.tr('Select Another Folder')),
               ),
             ],
           ),
@@ -1102,7 +1180,7 @@ class _SortScreenState extends State<SortScreen>
           leading: IconButton(
             onPressed: _kembaliKePilihFolder,
             icon: const Icon(Icons.arrow_back),
-            tooltip: 'Back to albums',
+            tooltip: context.tr('Back to albums'),
           ),
           title: Text(
             _selectedAlbum!.name,
@@ -1113,7 +1191,7 @@ class _SortScreenState extends State<SortScreen>
             TextButton.icon(
               onPressed: _openTrash,
               icon: const Icon(Icons.delete_outline),
-              label: const Text('Open Trash'),
+              label: Text(context.tr('Open Trash')),
             ),
           ],
         ),
@@ -1123,7 +1201,9 @@ class _SortScreenState extends State<SortScreen>
             Expanded(
               child: Center(
                 child: Text(
-                  'No media matching this filter was found in this folder.',
+                  context.tr(
+                    'No media matching this filter was found in this folder.',
+                  ),
                 ),
               ),
             ),
@@ -1139,7 +1219,7 @@ class _SortScreenState extends State<SortScreen>
         leading: IconButton(
           onPressed: _kembaliKePilihFolder,
           icon: const Icon(Icons.arrow_back),
-          tooltip: 'Back to albums',
+          tooltip: context.tr('Back to albums'),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1152,7 +1232,10 @@ class _SortScreenState extends State<SortScreen>
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
             Text(
-              '$sisa of $total items remaining',
+              context.tr('{remaining} of {total} items remaining', {
+                'remaining': sisa,
+                'total': total,
+              }),
               style: TextStyle(
                 fontSize: 11,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1164,10 +1247,10 @@ class _SortScreenState extends State<SortScreen>
           IconButton(
             onPressed: _openTrash,
             icon: const Icon(Icons.delete_outline),
-            tooltip: 'Open Trash - restore items for up to 30 days',
+            tooltip: context.tr('Open Trash - restore items for up to 30 days'),
           ),
           PopupMenuButton<String>(
-            tooltip: 'Item actions',
+            tooltip: context.tr('Item actions'),
             enabled: !_isMovingFile,
             onSelected: (action) {
               if (action == 'moveToTrash') _moveCurrentToTrash();
@@ -1183,9 +1266,9 @@ class _SortScreenState extends State<SortScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text('Move to Trash'),
+                        Text(context.tr('Move to Trash')),
                         Text(
-                          'Restorable for 30 days',
+                          context.tr('Restorable for 30 days'),
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
@@ -1202,14 +1285,18 @@ class _SortScreenState extends State<SortScreen>
             icon: const Icon(Icons.undo),
             tooltip: _history.isNotEmpty && !_history.last.undoable
                 ? _history.last.targetLabel == 'Trash'
-                      ? 'Undo is unavailable for items moved to Trash; restore them from Trash'
-                      : 'Undo is not available for Google Drive transfers'
-                : 'Undo Move',
+                      ? context.tr(
+                          'Undo is unavailable for items moved to Trash; restore them from Trash',
+                        )
+                      : context.tr(
+                          'Undo is not available for Google Drive transfers',
+                        )
+                : context.tr('Undo Move'),
           ),
           IconButton(
             onPressed: openSettings,
             icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Target folders',
+            tooltip: context.tr('Target folders'),
           ),
         ],
       ),
@@ -1310,7 +1397,9 @@ class _SortScreenState extends State<SortScreen>
                           FutureBuilder<int>(
                             future: album.assetCountAsync,
                             builder: (context, snapshot) => Text(
-                              '${snapshot.data ?? 0} items',
+                              context.tr('{count} items', {
+                                'count': snapshot.data ?? 0,
+                              }),
                               style: TextStyle(
                                 color: Theme.of(context)
                                     .colorScheme
@@ -1368,8 +1457,9 @@ class _SortScreenState extends State<SortScreen>
             ),
             subtitle: FutureBuilder<int>(
               future: album.assetCountAsync,
-              builder: (context, snapshot) =>
-                  Text('${snapshot.data ?? 0} items'),
+              builder: (context, snapshot) => Text(
+                context.tr('{count} items', {'count': snapshot.data ?? 0}),
+              ),
             ),
             trailing: const Icon(Icons.chevron_right, size: 20),
           ),
@@ -1478,7 +1568,7 @@ class _SortScreenState extends State<SortScreen>
             children: [
               Expanded(
                 child: Text(
-                  'MOVE TO FOLDER',
+                  context.tr('MOVE TO FOLDER'),
                   style: TextStyle(
                     fontSize: 11,
                     letterSpacing: 0.7,
@@ -1490,7 +1580,10 @@ class _SortScreenState extends State<SortScreen>
               TextButton.icon(
                 onPressed: openSettings,
                 icon: const Icon(Icons.tune, size: 16),
-                label: const Text('Edit', style: TextStyle(fontSize: 12)),
+                label: Text(
+                  context.tr('Edit'),
+                  style: const TextStyle(fontSize: 12),
+                ),
                 style: TextButton.styleFrom(
                   visualDensity: VisualDensity.compact,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1532,9 +1625,9 @@ class _SortScreenState extends State<SortScreen>
               ),
               onPressed: skipMedia,
               icon: const Icon(Icons.skip_next),
-              label: const Text(
-                'Skip for now',
-                style: TextStyle(fontWeight: FontWeight.w600),
+              label: Text(
+                context.tr('Skip for now'),
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
           ),
@@ -1600,10 +1693,14 @@ class _SortScreenState extends State<SortScreen>
                   if (!compact)
                     Text(
                       folder.isDriveDestination
-                          ? 'Drive · ${folder.driveFolderName ?? 'Selected folder'}'
+                          ? context.tr('Drive · {folder}', {
+                              'folder':
+                                  folder.driveFolderName ??
+                                  context.tr('Selected folder'),
+                            })
                           : isConfigured
                           ? folder.path
-                          : 'Configure destination',
+                          : context.tr('Configure destination'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1669,7 +1766,7 @@ class _SortScreenState extends State<SortScreen>
               size: 15,
             ),
             label: Text(
-              _isAscending ? 'OLDEST' : 'NEWEST',
+              context.tr(_isAscending ? 'OLDEST' : 'NEWEST'),
               style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
             ),
             style: OutlinedButton.styleFrom(
@@ -1693,23 +1790,23 @@ class _SortScreenState extends State<SortScreen>
     final colorScheme = Theme.of(context).colorScheme;
 
     return PopupMenuButton<MediaTypeFilter>(
-      tooltip: 'Filter media type',
+      tooltip: context.tr('Filter media type'),
       onSelected: _setMediaFilter,
       itemBuilder: (context) => [
         CheckedPopupMenuItem(
           value: MediaTypeFilter.all,
           checked: _mediaFilter == MediaTypeFilter.all,
-          child: const Text('All media'),
+          child: Text(context.tr('All media')),
         ),
         CheckedPopupMenuItem(
           value: MediaTypeFilter.photos,
           checked: _mediaFilter == MediaTypeFilter.photos,
-          child: const Text('Photos'),
+          child: Text(context.tr('Photos')),
         ),
         CheckedPopupMenuItem(
           value: MediaTypeFilter.videos,
           checked: _mediaFilter == MediaTypeFilter.videos,
-          child: const Text('Videos'),
+          child: Text(context.tr('Videos')),
         ),
       ],
       child: Container(
@@ -1730,7 +1827,11 @@ class _SortScreenState extends State<SortScreen>
             ),
             const SizedBox(width: 5),
             Text(
-              _mediaFilter.name.toUpperCase(),
+              context.tr(switch (_mediaFilter) {
+                MediaTypeFilter.all => 'All media',
+                MediaTypeFilter.photos => 'Photos',
+                MediaTypeFilter.videos => 'Videos',
+              }).toUpperCase(),
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
@@ -1815,7 +1916,9 @@ class _VideoPlayerModalState extends State<VideoPlayerModal> {
   void _showPlaybackError() {
     if (!mounted || _playbackError != null) return;
     setState(() {
-      _playbackError = 'Unable to play this video. Please try again or open it in your Gallery app.';
+      _playbackError = context.tr(
+        'Unable to play this video. Please try again or open it in your Gallery app.',
+      );
     });
   }
 

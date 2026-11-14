@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 
+import '../services/app_localizations.dart';
 import '../services/drive_folder_link.dart';
 import '../services/google_drive_service.dart';
 
@@ -140,11 +141,38 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
       });
     } on FormatException catch (error) {
       if (mounted) {
-        setState(() => _folderLinkErrorMessage = error.message.toString());
+        setState(
+          () => _folderLinkErrorMessage = context.tr(error.message.toString()),
+        );
       }
     } on DriveFolderLinkException catch (error) {
       if (mounted) {
-        setState(() => _folderLinkErrorMessage = error.displayMessage);
+        final lines = <String>[];
+        if (error.mayBeDriveFileScopeLimitation) {
+          lines.add(
+            context.tr(
+              'This folder was not created by Loka Files, so Drive does not allow access with current permission.',
+            ),
+          );
+          if (error.httpStatus == 404) {
+            lines.add(
+              context.tr(
+                'Drive does not distinguish a missing folder from one hidden by the current permission.',
+              ),
+            );
+          }
+        } else {
+          lines.add(context.tr('Unable to validate this folder.'));
+        }
+        lines.addAll([
+          context.tr('Folder ID: {id}', {'id': error.folderId}),
+          context.tr('HTTP status: {status}', {
+            'status': error.httpStatus ?? context.tr('not available'),
+          }),
+          context.tr('Drive API error: {error}', {'error': error.apiError}),
+          context.tr('Account: {account}', {'account': error.accountEmail}),
+        ]);
+        setState(() => _folderLinkErrorMessage = lines.join('\n'));
       }
     } catch (error) {
       if (mounted) {
@@ -153,11 +181,11 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
         final folderId = extractDriveFolderId(_folderLinkController.text);
         setState(
           () => _folderLinkErrorMessage =
-              'Unable to validate this folder.\n'
-              'Folder ID: ${folderId ?? 'not available'}\n'
-              'HTTP status: not available\n'
-              'Drive API error: $error\n'
-              'Account: $email',
+              '${context.tr('Unable to validate this folder.')}\n'
+              '${context.tr('Folder ID: {id}', {'id': folderId ?? context.tr('not available')})}\n'
+              '${context.tr('HTTP status: {status}', {'status': context.tr('not available')})}\n'
+              '${context.tr('Drive API error: {error}', {'error': error})}\n'
+              '${context.tr('Account: {account}', {'account': email})}',
         );
       }
     } finally {
@@ -175,7 +203,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
 
         return StatefulBuilder(
           builder: (context, setDialogState) => AlertDialog(
-            title: const Text('Create New Folder'),
+            title: Text(context.tr('Create New Folder')),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -183,8 +211,8 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                 TextField(
                   controller: _folderNameController,
                   autofocus: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Folder name',
+                  decoration: InputDecoration(
+                    labelText: context.tr('Folder name'),
                     border: OutlineInputBorder(),
                   ),
                   textCapitalization: TextCapitalization.sentences,
@@ -210,7 +238,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                 onPressed: isCreating
                     ? null
                     : () => Navigator.pop(dialogContext),
-                child: const Text('Cancel'),
+                child: Text(context.tr('Cancel')),
               ),
               FilledButton(
                 onPressed: isCreating
@@ -219,7 +247,9 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                         final name = _folderNameController.text.trim();
                         if (name.isEmpty) {
                           setDialogState(
-                            () => errorMessage = 'Enter a folder name.',
+                            () => errorMessage = context.tr(
+                              'Enter a folder name.',
+                            ),
                           );
                           return;
                         }
@@ -251,7 +281,10 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                           if (!dialogContext.mounted) return;
                           setDialogState(() {
                             isCreating = false;
-                            errorMessage = 'Unable to create folder: $error';
+                            errorMessage = context.tr(
+                              'Unable to create folder: {error}',
+                              {'error': error},
+                            );
                           });
                         }
                       },
@@ -261,7 +294,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Create'),
+                    : Text(context.tr('Create')),
               ),
             ],
           ),
@@ -270,7 +303,13 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
     );
     if (createdFolder != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Folder "${createdFolder.name}" created.')),
+        SnackBar(
+          content: Text(
+            context.tr('Folder "{folder}" created.', {
+              'folder': createdFolder.name ?? '',
+            }),
+          ),
+        ),
       );
     }
   }
@@ -281,7 +320,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
     final mediaQuery = MediaQuery.of(context);
     final title = _activeTab == _DriveFolderTab.connectedDrive
         ? _path.last.name
-        : 'Add Folder Link';
+        : context.tr('Add Folder Link');
     final canSelect =
         _activeTab == _DriveFolderTab.connectedDrive || _linkedFolder != null;
 
@@ -314,7 +353,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                           IconButton(
                             onPressed: _goToParent,
                             icon: const Icon(Icons.arrow_back),
-                            tooltip: 'Parent folder',
+                            tooltip: context.tr('Parent folder'),
                             visualDensity: VisualDensity.compact,
                           )
                         else
@@ -331,7 +370,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                         IconButton(
                           onPressed: () => Navigator.pop(context),
                           icon: const Icon(Icons.close),
-                          tooltip: 'Close',
+                          tooltip: context.tr('Close'),
                           visualDensity: VisualDensity.compact,
                         ),
                       ],
@@ -340,14 +379,14 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: SegmentedButton<_DriveFolderTab>(
-                      segments: const [
+                      segments: [
                         ButtonSegment(
                           value: _DriveFolderTab.connectedDrive,
-                          label: Text('My Connected Drive'),
+                          label: Text(context.tr('My Connected Drive')),
                         ),
                         ButtonSegment(
                           value: _DriveFolderTab.addFolderLink,
-                          label: Text('Add Folder Link'),
+                          label: Text(context.tr('Add Folder Link')),
                         ),
                       ],
                       selected: {_activeTab},
@@ -372,7 +411,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                       children: [
                         TextButton(
                           onPressed: () => Navigator.pop(context),
-                          child: const Text('Cancel'),
+                          child: Text(context.tr('Cancel')),
                         ),
                         const SizedBox(width: 8),
                         FilledButton(
@@ -385,7 +424,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                                         _linkedFolder!.parentId,
                                       )
                               : null,
-                          child: const Text('Select Folder'),
+                          child: Text(context.tr('Select Folder')),
                         ),
                       ],
                     ),
@@ -414,7 +453,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
           child: FilledButton.tonalIcon(
             onPressed: _createFolder,
             icon: const Icon(Icons.create_new_folder_outlined, size: 18),
-            label: const Text('Create New Folder'),
+            label: Text(context.tr('Create New Folder')),
           ),
         ),
         const SizedBox(height: 8),
@@ -428,7 +467,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'Add Google Drive Folder Editor Link',
+          context.tr('Add Google Drive Folder Editor Link'),
           style: Theme.of(context).textTheme.labelLarge,
         ),
         const SizedBox(height: 8),
@@ -443,8 +482,10 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
               });
             }
           },
-          decoration: const InputDecoration(
-            hintText: 'Paste Google Drive folder link here - https://drive.google.com/drive/folders/...',
+          decoration: InputDecoration(
+            hintText: context.tr(
+              'Paste Google Drive folder link here - https://drive.google.com/drive/folders/...',
+            ),
             border: OutlineInputBorder(),
             isDense: true,
           ),
@@ -467,7 +508,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Use This Folder'),
+                : Text(context.tr('Use This Folder')),
           ),
         ),
         if (_linkedFolder case final linkedFolder?) ...[
@@ -476,7 +517,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.folder_outlined),
             title: Text(linkedFolder.name),
-            subtitle: const Text('Folder link validated'),
+            subtitle: Text(context.tr('Folder link validated')),
           ),
         ],
       ],
@@ -493,20 +534,22 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
     if (_errorMessage != null) {
       return Column(
         children: [
-          Text(_errorMessage!, textAlign: TextAlign.center),
+          Text(context.tr(_errorMessage!), textAlign: TextAlign.center),
           const SizedBox(height: 8),
           TextButton.icon(
             onPressed: _loadCurrentFolder,
             icon: const Icon(Icons.refresh),
-            label: const Text('Retry'),
+            label: Text(context.tr('Retry')),
           ),
         ],
       );
     }
     if (_folders.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 40),
-        child: Center(child: Text('No subfolders in this location.')),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Center(
+          child: Text(context.tr('No subfolders in this location.')),
+        ),
       );
     }
 
@@ -521,7 +564,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
           dense: true,
           leading: const Icon(Icons.folder_outlined),
           title: Text(
-            folder.name ?? 'Unnamed folder',
+            folder.name ?? context.tr('Unnamed folder'),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -534,7 +577,7 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
                           folder.name!,
                           _path.last.id,
                         ),
-                  child: const Text('Select'),
+                  child: Text(context.tr('Select')),
                 )
               : const Icon(Icons.chevron_right),
           onTap: () => _openFolder(folder),

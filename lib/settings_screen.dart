@@ -6,9 +6,11 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_tour_screen.dart';
 import 'models/local_delete_mode.dart';
 import 'models/target_folder.dart';
 import 'services/app_update_service.dart';
+import 'services/app_localizations.dart';
 import 'services/google_drive_service.dart';
 import 'widgets/drive_folder_picker.dart';
 import 'main.dart';
@@ -104,7 +106,11 @@ class _SettingsScreenState extends State<SettingsScreen>
       if (!mounted) return;
       setState(() => _isDeleteModeLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unable to load delete mode: $error')),
+        SnackBar(
+          content: Text(
+            context.tr('Unable to load delete mode: {error}', {'error': error}),
+          ),
+        ),
       );
     }
   }
@@ -148,8 +154,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       if (!mounted) return;
       if (account == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Google Drive connection was cancelled.'),
+          SnackBar(
+            content: Text(context.tr('Google Drive connection was cancelled.')),
           ),
         );
       } else {
@@ -161,7 +167,13 @@ class _SettingsScreenState extends State<SettingsScreen>
           _showConnectionError(error.message);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Unable to connect Google Drive: $error')),
+            SnackBar(
+              content: Text(
+                context.tr('Unable to connect Google Drive: {error}', {
+                  'error': error,
+                }),
+              ),
+            ),
           );
         }
       }
@@ -172,7 +184,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   void _showConnectionError(String message) {
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+        .showSnackBar(SnackBar(content: Text(context.tr(message))));
   }
 
   Future<void> _disconnectDrive() async {
@@ -183,7 +195,13 @@ class _SettingsScreenState extends State<SettingsScreen>
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to disconnect Google Drive: $error')),
+          SnackBar(
+            content: Text(
+              context.tr('Unable to disconnect Google Drive: {error}', {
+                'error': error,
+              }),
+            ),
+          ),
         );
       }
     } finally {
@@ -219,14 +237,22 @@ class _SettingsScreenState extends State<SettingsScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Updated to v${pendingVersion.replaceFirst(RegExp(r'^[vV]'), '')}. Please re-open the app.',
+            context.tr('Updated to v{version}. Please re-open the app.', {
+              'version': pendingVersion.replaceFirst(RegExp(r'^[vV]'), ''),
+            }),
           ),
         ),
       );
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to load the app version: $error')),
+          SnackBar(
+            content: Text(
+              context.tr('Unable to load the app version: {error}', {
+                'error': error,
+              }),
+            ),
+          ),
         );
       }
     }
@@ -243,9 +269,11 @@ class _SettingsScreenState extends State<SettingsScreen>
           await _installCachedUpdate(_cachedRelease!, _cachedApk!);
         } else if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text(
-                'Install unknown apps is still disabled for Loka Files.',
+                context.tr(
+                  'Install unknown apps is still disabled for Loka Files.',
+                ),
               ),
             ),
           );
@@ -253,7 +281,13 @@ class _SettingsScreenState extends State<SettingsScreen>
       } catch (error) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Unable to continue the update: $error')),
+            SnackBar(
+              content: Text(
+                context.tr('Unable to continue the update: {error}', {
+                  'error': error,
+                }),
+              ),
+            ),
           );
         }
       }
@@ -294,7 +328,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
       if (release == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You are on the latest version.')),
+          SnackBar(content: Text(context.tr('You are on the latest version.'))),
         );
         return;
       }
@@ -302,18 +336,24 @@ class _SettingsScreenState extends State<SettingsScreen>
       final shouldUpdate = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text('New version ${release.version} available'),
+          title: Text(
+            context.tr('New version {version} available', {
+              'version': release.version,
+            }),
+          ),
           content: Text(
-            'Download ${release.assetName} and install this update now?',
+            context.tr('Download {asset} and install this update now?', {
+              'asset': release.assetName,
+            }),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Later'),
+              child: Text(context.tr('Later')),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Update'),
+              child: Text(context.tr('Update')),
             ),
           ],
         ),
@@ -324,7 +364,13 @@ class _SettingsScreenState extends State<SettingsScreen>
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to check for updates: $error')),
+          SnackBar(
+            content: Text(
+              context.tr('Unable to check for updates: {error}', {
+                'error': error,
+              }),
+            ),
+          ),
         );
       }
     } finally {
@@ -362,9 +408,11 @@ class _SettingsScreenState extends State<SettingsScreen>
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Download failed. Please try again or download from GitHub Releases.',
+              context.tr(
+                'Download failed. Please try again or download from GitHub Releases.',
+              ),
             ),
           ),
         );
@@ -395,18 +443,20 @@ class _SettingsScreenState extends State<SettingsScreen>
         final openSettings = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Allow app updates'),
-            content: const Text(
-              'To update inside the app, allow Install unknown apps for Loka Files.',
+            title: Text(context.tr('Allow app updates')),
+            content: Text(
+              context.tr(
+                'To update inside the app, allow Install unknown apps for Loka Files.',
+              ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
+                child: Text(context.tr('Cancel')),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Open Settings'),
+                child: Text(context.tr('Open Settings')),
               ),
             ],
           ),
@@ -422,7 +472,13 @@ class _SettingsScreenState extends State<SettingsScreen>
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to install the update: $error')),
+          SnackBar(
+            content: Text(
+              context.tr('Unable to install the update: {error}', {
+                'error': error,
+              }),
+            ),
+          ),
         );
       }
     } finally {
@@ -463,14 +519,17 @@ class _SettingsScreenState extends State<SettingsScreen>
     final percentage = total == 0 ? 0 : (received * 100 ~/ total);
     final receivedMb = received / (1024 * 1024);
     final totalMb = total / (1024 * 1024);
-    return 'Downloading $percentage% '
-        '(${receivedMb.toStringAsFixed(1)} / ${totalMb.toStringAsFixed(1)} MB)';
+    return context.tr('Downloading {percent}% ({received} / {total} MB)', {
+      'percent': percentage,
+      'received': receivedMb.toStringAsFixed(1),
+      'total': totalMb.toStringAsFixed(1),
+    });
   }
 
   Future<void> _pickDriveFolderForIndex(int index) async {
     if (!widget.driveService.isConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connect Google Drive first.')),
+        SnackBar(content: Text(context.tr('Connect Google Drive first.'))),
       );
       return;
     }
@@ -506,10 +565,39 @@ class _SettingsScreenState extends State<SettingsScreen>
     });
   }
 
+  Future<void> _selectLanguage(AppLanguage language) async {
+    try {
+      await PilahFotoApp.setLanguage(context, language);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.tr('Unable to save language: {error}', {'error': error}),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showAppTour() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => AppTourScreen(
+          onCompleted: () async {
+            if (mounted) Navigator.of(context).pop();
+          },
+        ),
+      ),
+    );
+  }
+
   void _addNewSlot() {
     setState(() {
-      _folders.add(TargetFolder(label: 'New Category', path: ''));
-      _controllers.add(TextEditingController(text: 'New Category'));
+      final label = context.tr('New Category');
+      _folders.add(TargetFolder(label: label, path: ''));
+      _controllers.add(TextEditingController(text: label));
     });
   }
 
@@ -542,7 +630,9 @@ class _SettingsScreenState extends State<SettingsScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Unable to save Delete Mode: ${error.toString()}'),
+          content: Text(
+            context.tr('Unable to save Delete Mode: {error}', {'error': error}),
+          ),
         ),
       );
       return;
@@ -562,17 +652,17 @@ class _SettingsScreenState extends State<SettingsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Target folders'),
+        title: Text(context.tr('Target folders')),
         actions: [
           TextButton.icon(
             onPressed: _saveAndClose,
             icon: const Icon(Icons.check, size: 18),
-            label: const Text('Save'),
+            label: Text(context.tr('Save')),
           ),
           const SizedBox(width: 8),
         ],
       ),
-      body: Column(
+      body: ListView(
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -580,12 +670,12 @@ class _SettingsScreenState extends State<SettingsScreen>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Row(
+                Row(
                   children: [
                     Icon(Icons.brightness_6_outlined, size: 18),
                     SizedBox(width: 8),
                     Text(
-                      'Appearance',
+                      context.tr('Appearance'),
                       style: TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ],
@@ -593,18 +683,18 @@ class _SettingsScreenState extends State<SettingsScreen>
                 DropdownButton<ThemeMode>(
                   value: _selectedThemeMode,
                   underline: const SizedBox.shrink(),
-                  items: const [
+                  items: [
                     DropdownMenuItem(
                       value: ThemeMode.system,
-                      child: Text('System'),
+                      child: Text(context.tr('System')),
                     ),
                     DropdownMenuItem(
                       value: ThemeMode.light,
-                      child: Text('Light'),
+                      child: Text(context.tr('Light')),
                     ),
                     DropdownMenuItem(
                       value: ThemeMode.dark,
-                      child: Text('Dark'),
+                      child: Text(context.tr('Dark')),
                     ),
                   ],
                   onChanged: (ThemeMode? mode) {
@@ -613,6 +703,49 @@ class _SettingsScreenState extends State<SettingsScreen>
                       PilahFotoApp.setThemeMode(context, mode);
                     }
                   },
+                ),
+              ],
+            ),
+          ),
+          Card(
+            margin: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.language),
+                  title: Text(context.tr('Language')),
+                  trailing: DropdownButton<AppLanguage>(
+                    value: AppLanguage.fromLocale(
+                      Localizations.localeOf(context),
+                    ),
+                    underline: const SizedBox.shrink(),
+                    items: AppLanguage.values
+                        .map(
+                          (language) => DropdownMenuItem(
+                            value: language,
+                            child: Text(language.displayName),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (language) {
+                      if (language != null) _selectLanguage(language);
+                    },
+                  ),
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.tour_outlined),
+                  title: Text(context.tr('Show App Tour again')),
+                  subtitle: Text(
+                    context.tr(
+                      'Learn the basics of sorting and Drive uploads.',
+                    ),
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _showAppTour,
                 ),
               ],
             ),
@@ -627,10 +760,26 @@ class _SettingsScreenState extends State<SettingsScreen>
               children: [
                 Text(
                   _currentVersion == null
-                      ? 'Current version: Loading...'
-                      : AppUpdateService.formatVersionLabel(
-                          _currentVersion!,
-                          latestVersion: _latestVersion,
+                      ? context.tr('Current version: Loading...')
+                      : _latestVersion == null
+                      ? context.tr('Current version: v{version}', {
+                          'version': _currentVersion!.replaceFirst(
+                            RegExp(r'^[vV]'),
+                            '',
+                          ),
+                        })
+                      : context.tr(
+                          'Current version: v{current} | Latest: v{latest}',
+                          {
+                            'current': _currentVersion!.replaceFirst(
+                              RegExp(r'^[vV]'),
+                              '',
+                            ),
+                            'latest': _latestVersion!.replaceFirst(
+                              RegExp(r'^[vV]'),
+                              '',
+                            ),
+                          },
                         ),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -653,8 +802,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                     _isDownloadingUpdate
                         ? _downloadProgressLabel
                         : _latestVersion == null
-                        ? 'Check for Update'
-                        : 'Update',
+                        ? context.tr('Check for Update')
+                        : context.tr('Update'),
                   ),
                 ),
               ],
@@ -668,13 +817,15 @@ class _SettingsScreenState extends State<SettingsScreen>
                   .withValues(alpha: 0.55),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Row(
+            child: Row(
               children: [
                 Icon(Icons.info_outline, size: 18),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Choose a destination on this device or in Google Drive. Local photos can be moved to either destination.',
+                    context.tr(
+                      'Choose a destination on this device or in Google Drive. Local photos can be moved to either destination.',
+                    ),
                     style: TextStyle(fontSize: 12),
                   ),
                 ),
@@ -687,12 +838,14 @@ class _SettingsScreenState extends State<SettingsScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Delete Mode',
+                  context.tr('Delete Mode'),
                   style: Theme.of(context).textTheme.titleSmall
                       ?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 Text(
-                  'Applies only to local files after a successful Google Drive upload.',
+                  context.tr(
+                    'Applies only to local files after a successful Google Drive upload.',
+                  ),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 RadioGroup<LocalDeleteMode>(
@@ -706,8 +859,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                     children: [
                       RadioListTile<LocalDeleteMode>(
                         value: LocalDeleteMode.moveToTrash,
-                        title: const Text('Move to Trash'),
-                        subtitle: const Text('Restorable for 30 days.'),
+                        title: Text(context.tr('Move to Trash')),
+                        subtitle: Text(context.tr('Restorable for 30 days.')),
                         enabled: !_isDeleteModeLoading,
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -715,8 +868,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                       ),
                       RadioListTile<LocalDeleteMode>(
                         value: LocalDeleteMode.deletePermanently,
-                        title: const Text('Delete Permanently'),
-                        subtitle: const Text('Cannot be undone.'),
+                        title: Text(context.tr('Delete Permanently')),
+                        subtitle: Text(context.tr('Cannot be undone.')),
                         enabled: !_isDeleteModeLoading,
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -728,110 +881,123 @@ class _SettingsScreenState extends State<SettingsScreen>
               ],
             ),
           ),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isWideScreen = constraints.maxWidth >= 900;
-                return Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: isWideScreen ? 1080 : 680,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isWideScreen = constraints.maxWidth >= 900;
+              return Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: isWideScreen ? 1080 : 680,
+                  ),
+                  child: GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: isWideScreen ? 2 : 1,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 8,
+                      mainAxisExtent: 128,
                     ),
-                    child: GridView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: isWideScreen ? 2 : 1,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 8,
-                        mainAxisExtent: 128,
-                      ),
-                      itemCount: _folders.length,
-                      itemBuilder: (context, index) {
-                        final folder = _folders[index];
-                        return Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _controllers[index],
-                                        decoration: const InputDecoration(
-                                          labelText: 'Folder name',
-                                          border: OutlineInputBorder(),
-                                          isDense: true,
-                                        ),
+                    itemCount: _folders.length,
+                    itemBuilder: (context, index) {
+                      final folder = _folders[index];
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _controllers[index],
+                                      decoration: InputDecoration(
+                                        labelText: context.tr('Folder name'),
+                                        border: OutlineInputBorder(),
+                                        isDense: true,
                                       ),
                                     ),
-                                    const SizedBox(width: 4),
-                                    IconButton.filledTonal(
-                                      onPressed: () => _removeSlot(index),
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        size: 20,
-                                      ),
-                                      tooltip: 'Remove folder',
-                                      visualDensity: VisualDensity.compact,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  IconButton.filledTonal(
+                                    onPressed: () => _removeSlot(index),
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      size: 20,
                                     ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      folder.isDriveDestination
-                                          ? Icons.cloud_outlined
-                                          : Icons.folder_outlined,
-                                      size: 16,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: folder.isDriveDestination
-                                          ? Row(
-                                              children: [
-                                                Container(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 6,
-                                                        vertical: 2,
-                                                      ),
-                                                  decoration: BoxDecoration(
+                                    tooltip: context.tr('Remove folder'),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Icon(
+                                    folder.isDriveDestination
+                                        ? Icons.cloud_outlined
+                                        : Icons.folder_outlined,
+                                    size: 16,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: folder.isDriveDestination
+                                        ? Row(
+                                            children: [
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .primaryContainer,
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                ),
+                                                child: Text(
+                                                  context.tr('Drive'),
+                                                  style: TextStyle(
+                                                    fontSize: 10,
                                                     color: Theme.of(context)
                                                         .colorScheme
-                                                        .primaryContainer,
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          6,
-                                                        ),
-                                                  ),
-                                                  child: Text(
-                                                    'Drive',
-                                                    style: TextStyle(
-                                                      fontSize: 10,
-                                                      color: Theme.of(context)
-                                                          .colorScheme
-                                                          .onPrimaryContainer,
-                                                    ),
+                                                        .onPrimaryContainer,
                                                   ),
                                                 ),
-                                                const SizedBox(width: 6),
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      Text(
-                                                        folder.driveFolderName ??
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      folder.driveFolderName ??
+                                                          context.tr(
                                                             'Selected folder',
+                                                          ),
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        color: Theme.of(context)
+                                                            .colorScheme
+                                                            .onSurfaceVariant,
+                                                      ),
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                    if (folder.driveFolderId !=
+                                                        null)
+                                                      Text(
+                                                        'ID: ${_shortDriveFolderId(folder.driveFolderId!)}',
                                                         style: TextStyle(
-                                                          fontSize: 12,
+                                                          fontSize: 10,
                                                           color: Theme.of(context)
                                                               .colorScheme
                                                               .onSurfaceVariant,
@@ -839,73 +1005,59 @@ class _SettingsScreenState extends State<SettingsScreen>
                                                         overflow: TextOverflow
                                                             .ellipsis,
                                                       ),
-                                                      if (folder
-                                                              .driveFolderId !=
-                                                          null)
-                                                        Text(
-                                                          'ID: ${_shortDriveFolderId(folder.driveFolderId!)}',
-                                                          style: TextStyle(
-                                                            fontSize: 10,
-                                                            color: Theme.of(context)
-                                                                .colorScheme
-                                                                .onSurfaceVariant,
-                                                          ),
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                        ),
-                                                    ],
-                                                  ),
+                                                  ],
                                                 ),
-                                              ],
-                                            )
-                                          : Text(
-                                              _destinationDescription(folder),
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Theme.of(context)
-                                                    .colorScheme
-                                                    .onSurfaceVariant,
                                               ),
-                                              overflow: TextOverflow.ellipsis,
+                                            ],
+                                          )
+                                        : Text(
+                                            _destinationDescription(folder),
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
                                             ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  OutlinedButton.icon(
+                                    onPressed: () => _pickFolderForIndex(index),
+                                    icon: const Icon(
+                                      Icons.folder_open,
+                                      size: 15,
                                     ),
-                                    const SizedBox(width: 4),
-                                    OutlinedButton.icon(
-                                      onPressed: () =>
-                                          _pickFolderForIndex(index),
-                                      icon: const Icon(
-                                        Icons.folder_open,
-                                        size: 15,
-                                      ),
-                                      label: const Text('Local'),
-                                      style: OutlinedButton.styleFrom(
-                                        visualDensity: VisualDensity.compact,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                        ),
-                                      ),
-                                    ),
-                                    IconButton(
-                                      onPressed: () =>
-                                          _pickDriveFolderForIndex(index),
-                                      icon: const Icon(
-                                        Icons.add_to_drive_outlined,
-                                      ),
-                                      tooltip: 'Choose Google Drive folder',
+                                    label: Text(context.tr('Local')),
+                                    style: OutlinedButton.styleFrom(
                                       visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                      ),
                                     ),
-                                  ],
-                                ),
-                              ],
-                            ),
+                                  ),
+                                  IconButton(
+                                    onPressed: () =>
+                                        _pickDriveFolderForIndex(index),
+                                    icon: const Icon(
+                                      Icons.add_to_drive_outlined,
+                                    ),
+                                    tooltip: context.tr(
+                                      'Choose Google Drive folder',
+                                    ),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
+                ),
+              );
+            },
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
@@ -918,13 +1070,15 @@ class _SettingsScreenState extends State<SettingsScreen>
               ),
               onPressed: _addNewSlot,
               icon: const Icon(Icons.add),
-              label: const Text('Add folder'),
+              label: Text(context.tr('Add folder')),
             ),
           ),
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(
-              'Loka Files v${_currentVersion ?? '...'}',
+              context.tr('Loka Files v{version}', {
+                'version': _currentVersion ?? '...',
+              }),
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -952,12 +1106,12 @@ class _SettingsScreenState extends State<SettingsScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Google Drive',
+                  Text(
+                    context.tr('Google Drive'),
                     style: TextStyle(fontWeight: FontWeight.w600),
                   ),
                   Text(
-                    account?.email ?? 'Not connected',
+                    account?.email ?? context.tr('Not connected'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -977,12 +1131,12 @@ class _SettingsScreenState extends State<SettingsScreen>
             else if (account == null)
               OutlinedButton(
                 onPressed: _connectDrive,
-                child: const Text('Connect'),
+                child: Text(context.tr('Connect')),
               )
             else
               TextButton(
                 onPressed: _disconnectDrive,
-                child: const Text('Disconnect'),
+                child: Text(context.tr('Disconnect')),
               ),
           ],
         ),
@@ -992,9 +1146,13 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   String _destinationDescription(TargetFolder folder) {
     if (folder.isDriveDestination) {
-      return 'Drive · ${folder.driveFolderName ?? 'Selected folder'}';
+      return context.tr('Drive · {folder}', {
+        'folder': folder.driveFolderName ?? context.tr('Selected folder'),
+      });
     }
-    return folder.path.isEmpty ? 'No destination selected' : folder.path;
+    return folder.path.isEmpty
+        ? context.tr('No destination selected')
+        : folder.path;
   }
 
   String _shortDriveFolderId(String id) => id.length <= 12

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 
 import 'models/target_folder.dart';
+import 'services/app_localizations.dart';
 import 'services/google_drive_service.dart';
 
 class DriveSourceScreen extends StatefulWidget {
@@ -99,7 +100,9 @@ class _DriveSourceScreenState extends State<DriveSourceScreen> {
     if (fileId == null || targetFolderId == null) return;
     if (targetFolderId == _path.last.id) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This file is already in that folder.')),
+        SnackBar(
+          content: Text(context.tr('This file is already in that folder.')),
+        ),
       );
       return;
     }
@@ -117,14 +120,24 @@ class _DriveSourceScreenState extends State<DriveSourceScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${file.name ?? 'File'} moved to ${target.label}.'),
+          content: Text(
+            context.tr('{file} moved to {folder}.', {
+              'file': file.name ?? context.tr('File'),
+              'folder': target.label,
+            }),
+          ),
         ),
       );
     } catch (error) {
       if (!mounted) return;
       setState(() => _movingFileIds.remove(fileId));
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Unable to move file: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.tr('Unable to move file: {error}', {'error': error}),
+          ),
+        ),
+      );
     }
   }
 
@@ -142,14 +155,18 @@ class _DriveSourceScreenState extends State<DriveSourceScreen> {
         leading: IconButton(
           onPressed: _goBack,
           icon: const Icon(Icons.arrow_back),
-          tooltip: _path.length > 1 ? 'Parent folder' : 'Back to albums',
+          tooltip: context.tr(
+            _path.length > 1 ? 'Parent folder' : 'Back to albums',
+          ),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              _path.last.name,
+              _path.last.name == 'My Drive'
+                  ? context.tr('My Drive')
+                  : _path.last.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
@@ -169,7 +186,7 @@ class _DriveSourceScreenState extends State<DriveSourceScreen> {
           IconButton(
             onPressed: _editTargets,
             icon: const Icon(Icons.tune),
-            tooltip: 'Configure Drive destinations',
+            tooltip: context.tr('Configure Drive destinations'),
           ),
         ],
       ),
@@ -190,12 +207,12 @@ class _DriveSourceScreenState extends State<DriveSourceScreen> {
           children: [
             const Icon(Icons.cloud_off_outlined, size: 36),
             const SizedBox(height: 12),
-            Text(_errorMessage!, textAlign: TextAlign.center),
+            Text(context.tr(_errorMessage!), textAlign: TextAlign.center),
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: _loadCurrentFolder,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: Text(context.tr('Retry')),
             ),
           ],
         ),
@@ -205,13 +222,13 @@ class _DriveSourceScreenState extends State<DriveSourceScreen> {
 
   Widget _buildContents() {
     if (_folders.isEmpty && _mediaFiles.isEmpty) {
-      return const Center(child: Text('This Drive folder is empty.'));
+      return Center(child: Text(context.tr('This Drive folder is empty.')));
     }
 
     return CustomScrollView(
       slivers: [
         if (_folders.isNotEmpty) ...[
-          _buildSectionHeader('FOLDERS', _folders.length),
+          _buildSectionHeader(context.tr('FOLDERS'), _folders.length),
           SliverList(
             delegate: SliverChildBuilderDelegate(
               (context, index) => _buildFolderTile(_folders[index]),
@@ -220,7 +237,10 @@ class _DriveSourceScreenState extends State<DriveSourceScreen> {
           ),
         ],
         if (_mediaFiles.isNotEmpty) ...[
-          _buildSectionHeader('PHOTOS & VIDEOS', _mediaFiles.length),
+          _buildSectionHeader(
+            context.tr('PHOTOS & VIDEOS'),
+            _mediaFiles.length,
+          ),
           SliverList(
             delegate: SliverChildBuilderDelegate(
               (context, index) => _buildMediaTile(_mediaFiles[index]),
@@ -254,7 +274,7 @@ class _DriveSourceScreenState extends State<DriveSourceScreen> {
       onTap: () => _openFolder(folder),
       leading: const Icon(Icons.folder_outlined),
       title: Text(
-        folder.name ?? 'Unnamed folder',
+        folder.name ?? context.tr('Unnamed folder'),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -292,12 +312,14 @@ class _DriveSourceScreenState extends State<DriveSourceScreen> {
         ),
       ),
       title: Text(
-        file.name ?? 'Untitled media',
+        file.name ?? context.tr('Untitled media'),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
       subtitle: Text(
-        file.mimeType?.startsWith('video/') == true ? 'Video' : 'Photo',
+        context.tr(
+          file.mimeType?.startsWith('video/') == true ? 'Video' : 'Photo',
+        ),
       ),
       trailing: isMoving
           ? const SizedBox(
@@ -309,10 +331,10 @@ class _DriveSourceScreenState extends State<DriveSourceScreen> {
           ? IconButton(
               onPressed: _editTargets,
               icon: const Icon(Icons.drive_file_move_outlined),
-              tooltip: 'Set a Drive destination',
+              tooltip: context.tr('Set a Drive destination'),
             )
           : PopupMenuButton<TargetFolder>(
-              tooltip: 'Move to Drive folder',
+              tooltip: context.tr('Move to Drive folder'),
               onSelected: (target) => _moveFile(file, target),
               itemBuilder: (context) => destinations
                   .map(

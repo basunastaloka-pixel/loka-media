@@ -2,10 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pilah_foto/app_tour_screen.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pilah_foto/services/app_localizations.dart';
 import 'package:pilah_foto/services/app_update_service.dart';
 import 'package:pilah_foto/services/drive_folder_link.dart';
 import 'package:pilah_foto/models/local_delete_mode.dart';
@@ -261,6 +264,103 @@ void main() {
     );
   });
 
+  test('language preference defaults to English and persists', () async {
+    SharedPreferences.setMockInitialValues({});
+
+    expect(await AppPreferences.loadLanguage(), AppLanguage.english);
+    await AppPreferences.saveLanguage(AppLanguage.bahasaIndonesia);
+    expect(await AppPreferences.loadLanguage(), AppLanguage.bahasaIndonesia);
+    expect(
+      const AppLocalizations(Locale('id')).text('Welcome to Loka Files'),
+      'Selamat datang di Loka Files',
+    );
+  });
+
+  test('existing installations skip the first-run App Tour', () async {
+    SharedPreferences.setMockInitialValues({'saved_target_folders': '[]'});
+
+    expect(await AppPreferences.hasCompletedTour(), isTrue);
+    expect(
+      (await SharedPreferences.getInstance()).getBool(
+        AppPreferences.tourCompletedKey,
+      ),
+      isTrue,
+    );
+  });
+
+  testWidgets('first-run App Tour can be skipped and is saved', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    var completed = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('id'),
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: AppTourScreen(
+          onCompleted: () async {
+            completed = true;
+          },
+        ),
+      ),
+    );
+
+    expect(await AppPreferences.hasCompletedTour(), isFalse);
+    expect(find.text('Selamat datang di Loka Files'), findsOneWidget);
+    await tester.drag(find.byType(PageView), const Offset(-700, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('Atur folder tujuan terlebih dahulu'), findsOneWidget);
+    await tester.tap(find.text('Lewati'));
+    await tester.pumpAndSettle();
+
+    expect(completed, isTrue);
+    expect(await AppPreferences.hasCompletedTour(), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('finishing the App Tour saves completion', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    var completed = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: AppTourScreen(
+          onCompleted: () async {
+            completed = true;
+          },
+        ),
+      ),
+    );
+
+    for (var page = 0; page < 4; page++) {
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('Get Started'), findsOneWidget);
+    await tester.tap(find.text('Get Started'));
+    await tester.pumpAndSettle();
+
+    expect(completed, isTrue);
+    expect(await AppPreferences.hasCompletedTour(), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
   test('Drive destinations survive preference serialization', () {
     final folder = TargetFolder(
       label: 'Archive',
@@ -441,6 +541,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Target folders'), findsOneWidget);
+    expect(find.text('Language'), findsOneWidget);
+    expect(find.text('Show App Tour again'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('ID: drive-fo…r-id'),
       300,
@@ -450,7 +552,6 @@ void main() {
     expect(find.text('Connect'), findsOneWidget);
     expect(find.text('Check for Update'), findsOneWidget);
     expect(find.textContaining('Current version:'), findsOneWidget);
-    expect(find.textContaining('Loka Files v'), findsOneWidget);
     expect(find.text('Local'), findsAtLeastNWidgets(2));
     expect(find.text('Delete Mode'), findsOneWidget);
     expect(
@@ -461,6 +562,12 @@ void main() {
     );
     expect(find.text('Move to Trash'), findsOneWidget);
     expect(find.text('Delete Permanently'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.textContaining('Loka Files v'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.textContaining('Loka Files v'), findsOneWidget);
     final mobileGrid = tester.widget<GridView>(find.byType(GridView));
     expect(
       (mobileGrid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
@@ -532,6 +639,7 @@ void main() {
 
     await tester.tap(find.text('Open settings'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Delete Permanently'));
     await tester.tap(find.text('Delete Permanently'));
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();

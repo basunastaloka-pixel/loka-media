@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'dart:io';
 
+import 'services/app_localizations.dart';
+
 class PhotoItem {
   final String id;
   final String imageUrl;
@@ -17,7 +19,7 @@ class FolderScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Sorted Folders')),
+      appBar: AppBar(title: Text(context.tr('Sorted Folders'))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: folderContents.entries.map((entry) {
@@ -32,14 +34,16 @@ class FolderScreen extends StatelessWidget {
                 folderName,
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              subtitle: Text('${photos.length} media items'),
+              subtitle: Text(
+                context.tr('{count} media items', {'count': photos.length}),
+              ),
               children: [
                 if (photos.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(16.0),
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
                     child: Text(
-                      'No photos or videos in this folder yet.',
-                      style: TextStyle(color: Colors.grey),
+                      context.tr('No photos or videos in this folder yet.'),
+                      style: const TextStyle(color: Colors.grey),
                     ),
                   )
                 else
