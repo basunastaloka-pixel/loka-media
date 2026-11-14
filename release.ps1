@@ -7,7 +7,7 @@ $version = $versionLine.Split(":")[1].Trim().Split("+")[0]
 $tag = "v$version"
 
 Write-Host "Building Loka Files $version ($tag) ..."
-& "D:\Program Files\BASUN DEV\flutter\bin\flutter.bat" build apk --release --split-per-abi --dart-define=GOOGLE_SERVER_CLIENT_ID=780518349223-2tjm0u5d403jutqetq09rchm3fjqlhtp.apps.googleusercontent.com
+& "D:\flutter\bin\flutter.bat" build apk --release --split-per-abi --dart-define=GOOGLE_SERVER_CLIENT_ID=780518349223-2tjm0u5d403jutqetq09rchm3fjqlhtp.apps.googleusercontent.com
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Build gagal, upload dibatalkan."

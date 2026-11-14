@@ -14,7 +14,9 @@ import 'package:pilah_foto/services/google_drive_service.dart';
 import 'package:pilah_foto/services/local_trash_service.dart';
 import 'package:pilah_foto/services/windows_desktop_oauth.dart';
 import 'package:pilah_foto/settings_screen.dart';
+import 'package:pilah_foto/trash_screen.dart';
 import 'package:pilah_foto/widgets/drive_folder_picker.dart';
+import 'package:pilah_foto/widgets/trash_media_thumbnail.dart';
 import 'package:pilah_foto/widgets/video_preview_layout.dart';
 
 class _FakeGoogleDriveService extends GoogleDriveService {
@@ -213,6 +215,52 @@ void main() {
     expect(AppUpdateService.compareVersions('1.1.9', '1.2.0'), lessThan(0));
   });
 
+  test('app update selects the matching PC APK for device architecture', () {
+    expect(
+      AppUpdateService.selectApkAssetName(
+        'v1.2.3',
+        manufacturer: 'Google',
+        supportedAbis: ['arm64-v8a', 'armeabi-v7a'],
+      ),
+      'Loka-Files-v1.2.3.apk',
+    );
+    expect(
+      AppUpdateService.selectApkAssetName(
+        '1.2.3',
+        manufacturer: 'Google',
+        supportedAbis: ['armeabi-v7a'],
+      ),
+      'Loka-Files-v1.2.3-armeabi-v7a.apk',
+    );
+    expect(
+      AppUpdateService.selectApkAssetName(
+        '1.2.3',
+        manufacturer: 'HUAWEI',
+        supportedAbis: ['arm64-v8a'],
+      ),
+      'Loka-Files-v1.2.3-armeabi-v7a.apk',
+    );
+  });
+
+  test('corrupt APK data is rejected before installation', () {
+    expect(
+      AppUpdateService.isValidApkBytes(utf8.encode('<html>not an APK</html>')),
+      isFalse,
+    );
+    expect(AppUpdateService.isValidApkBytes([0x50, 0x4B, 0x03, 0x04]), isFalse);
+  });
+
+  test('app update version labels use current and latest versions', () {
+    expect(
+      AppUpdateService.formatVersionLabel('1.0.11'),
+      'Current version: v1.0.11',
+    );
+    expect(
+      AppUpdateService.formatVersionLabel('v1.0.11', latestVersion: '1.0.12'),
+      'Current version: v1.0.11 | Latest: v1.0.12',
+    );
+  });
+
   test('Drive destinations survive preference serialization', () {
     final folder = TargetFolder(
       label: 'Archive',
@@ -252,6 +300,103 @@ void main() {
 
     expect(activeItem.remainingDays, 30);
     expect(expiredItem.remainingDays, 0);
+  });
+
+  test('Trash supports all deleted-date and original-date sort orders', () {
+    final items = [
+      LocalTrashItem(
+        id: 'a',
+        fileName: 'a.jpg',
+        filePath: '/trash/a.jpg',
+        originalPath: '/photos/a.jpg',
+        deletedAt: DateTime(2026, 1, 1),
+        originalDate: DateTime(2024, 1, 1),
+      ),
+      LocalTrashItem(
+        id: 'b',
+        fileName: 'b.jpg',
+        filePath: '/trash/b.jpg',
+        originalPath: '/photos/b.jpg',
+        deletedAt: DateTime(2025, 1, 1),
+        originalDate: DateTime(2025, 1, 1),
+      ),
+    ];
+
+    expect(
+      LocalTrashService.sortItems(
+        items,
+        TrashSortOrder.newestDeleted,
+      ).map((item) => item.id),
+      ['a', 'b'],
+    );
+    expect(
+      LocalTrashService.sortItems(
+        items,
+        TrashSortOrder.oldestDeleted,
+      ).map((item) => item.id),
+      ['b', 'a'],
+    );
+    expect(
+      LocalTrashService.sortItems(
+        items,
+        TrashSortOrder.newestOriginal,
+      ).map((item) => item.id),
+      ['b', 'a'],
+    );
+    expect(
+      LocalTrashService.sortItems(
+        items,
+        TrashSortOrder.oldestOriginal,
+      ).map((item) => item.id),
+      ['a', 'b'],
+    );
+  });
+
+  test('Trash sort order persists in SharedPreferences', () async {
+    SharedPreferences.setMockInitialValues({});
+    final service = LocalTrashService();
+
+    await service.saveSortOrder(TrashSortOrder.oldestOriginal);
+
+    expect(await service.getSortOrder(), TrashSortOrder.oldestOriginal);
+  });
+
+  test('Trash file sizes have readable units', () {
+    expect(formatTrashFileSize(800), '800 B');
+    expect(formatTrashFileSize(1536), '1.5 KB');
+    expect(formatTrashFileSize(2 * 1024 * 1024), '2.0 MB');
+  });
+
+  testWidgets('Trash shows retention info and view/sort controls', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(const MaterialApp(home: TrashScreen()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(
+      find.text(
+        'Files in Trash are kept for 30 days, then deleted permanently. Tap Restore to bring back.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Your Trash is empty.'), findsOneWidget);
+    await tester.tap(find.byTooltip('Show as a grid'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Show as a list'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Sort Trash'));
+    await tester.pumpAndSettle();
+    await tester.tapAt(tester.getCenter(find.text('Oldest by original date')));
+    await tester.pumpAndSettle();
+    expect(
+      (await SharedPreferences.getInstance()).getString(
+        'loka_files_trash_sort_order',
+      ),
+      TrashSortOrder.oldestOriginal.name,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   test('legacy local folder preferences remain valid', () {
@@ -304,6 +449,8 @@ void main() {
     expect(find.text('ID: drive-fo…r-id'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
     expect(find.text('Check for Update'), findsOneWidget);
+    expect(find.textContaining('Current version:'), findsOneWidget);
+    expect(find.textContaining('Loka Files v'), findsOneWidget);
     expect(find.text('Local'), findsAtLeastNWidgets(2));
     expect(find.text('Delete Mode'), findsOneWidget);
     expect(

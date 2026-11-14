@@ -48,8 +48,12 @@ class SortScreen extends StatefulWidget {
   State<SortScreen> createState() => _SortScreenState();
 }
 
-class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
+class _SortScreenState extends State<SortScreen>
+    with WidgetsBindingObserver, AutomaticKeepAliveClientMixin<SortScreen> {
   final GoogleDriveService _driveService = GoogleDriveService();
+  final ScrollController _albumScrollController = ScrollController(
+    keepScrollOffset: true,
+  );
 
   static const List<Color> _folderPastelColors = [
     Color(0xFFF0C7B5),
@@ -98,6 +102,9 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   bool _isAppResumed = true;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
@@ -126,6 +133,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _albumScrollController.dispose();
     _driveBatchPollTimer?.cancel();
     _sealCurrentDriveBatch();
     _driveService.close();
@@ -483,6 +491,38 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
                 : 'Failed to move file: $displayError',
           ),
         ),
+      );
+    }
+  }
+
+  Future<void> _moveCurrentToTrash() async {
+    if (_isMovingFile || currentIndex >= _allPhotos.length) return;
+    final asset = _allPhotos[currentIndex];
+    setState(() => _isMovingFile = true);
+    try {
+      final item = await LocalTrashService().moveAssetToTrash(asset);
+      if (!mounted) return;
+      setState(() {
+        _history.add(
+          SortHistory(photo: asset, targetLabel: 'Trash', undoable: false),
+        );
+        movedCounts['Trash'] = (movedCounts['Trash'] ?? 0) + 1;
+        currentIndex++;
+        _isMovingFile = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '"${item.fileName}" moved to Trash. Restorable for 30 days.',
+          ),
+        ),
+      );
+      if (currentIndex >= _allPhotos.length) _sealCurrentDriveBatch();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isMovingFile = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to move this item to Trash: $error')),
       );
     }
   }
@@ -913,13 +953,6 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
       context,
       MaterialPageRoute<void>(builder: (_) => const TrashScreen()),
     );
-    if (!mounted) return;
-    final selectedAlbum = _selectedAlbum;
-    if (selectedAlbum == null) {
-      await _fetchAlbums();
-    } else {
-      await _selectFolder(selectedAlbum);
-    }
   }
 
   Future<List<TargetFolder>> _editTargets() async {
@@ -943,6 +976,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (_selectedAlbum == null) {
       return Scaffold(
         appBar: AppBar(
@@ -961,7 +995,11 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
             TextButton.icon(
               onPressed: _openTrash,
               icon: const Icon(Icons.delete_outline),
-              label: const Text('Trash'),
+              label: const Text('Open Trash'),
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
             ),
             if (_driveService.isConnected)
               IconButton(
@@ -1010,7 +1048,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
             TextButton.icon(
               onPressed: _openTrash,
               icon: const Icon(Icons.delete_outline),
-              label: const Text('Trash'),
+              label: const Text('Open Trash'),
             ),
           ],
         ),
@@ -1075,7 +1113,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
             TextButton.icon(
               onPressed: _openTrash,
               icon: const Icon(Icons.delete_outline),
-              label: const Text('Trash'),
+              label: const Text('Open Trash'),
             ),
           ],
         ),
@@ -1126,7 +1164,36 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
           IconButton(
             onPressed: _openTrash,
             icon: const Icon(Icons.delete_outline),
-            tooltip: 'Trash',
+            tooltip: 'Open Trash - restore items for up to 30 days',
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Item actions',
+            enabled: !_isMovingFile,
+            onSelected: (action) {
+              if (action == 'moveToTrash') _moveCurrentToTrash();
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'moveToTrash',
+                child: Row(
+                  children: [
+                    const Icon(Icons.delete_outline),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Move to Trash'),
+                        Text(
+                          'Restorable for 30 days',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
           IconButton(
             onPressed: _history.isNotEmpty && _history.last.undoable
@@ -1134,7 +1201,9 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
                 : null,
             icon: const Icon(Icons.undo),
             tooltip: _history.isNotEmpty && !_history.last.undoable
-                ? 'Undo is not available for Google Drive transfers'
+                ? _history.last.targetLabel == 'Trash'
+                      ? 'Undo is unavailable for items moved to Trash; restore them from Trash'
+                      : 'Undo is not available for Google Drive transfers'
                 : 'Undo Move',
           ),
           IconButton(
@@ -1203,6 +1272,8 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
             .clamp(3, 6)
             .toInt();
         return GridView.builder(
+          key: const PageStorageKey<String>('sort-album-grid'),
+          controller: _albumScrollController,
           padding: const EdgeInsets.fromLTRB(14, 8, 14, 16),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
@@ -1265,6 +1336,8 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
 
   Widget _buildAlbumList() {
     return ListView.separated(
+      key: const PageStorageKey<String>('sort-album-list'),
+      controller: _albumScrollController,
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 16),
       itemCount: _albums.length,
       separatorBuilder: (_, _) => const SizedBox(height: 7),

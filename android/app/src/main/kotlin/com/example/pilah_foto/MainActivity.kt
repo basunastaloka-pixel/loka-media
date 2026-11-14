@@ -5,9 +5,13 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.media.MediaScannerConnection
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
@@ -17,11 +21,14 @@ import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
     private var pendingDrivePickerResult: MethodChannel.Result? = null
+    private val videoThumbnailExecutor = Executors.newFixedThreadPool(2)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -67,67 +74,96 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             "pilah_foto/app_update",
         ).setMethodCallHandler { call, result ->
-            if (call.method != "installApk") {
-                result.notImplemented()
-                return@setMethodCallHandler
-            }
-            val apkPath = call.argument<String>("path")
-            if (apkPath.isNullOrBlank()) {
-                result.error("invalid_apk_path", "The update APK path is missing.", null)
-                return@setMethodCallHandler
-            }
-
-            val apkFile = File(apkPath)
-            if (!apkFile.isFile) {
-                result.error("apk_not_found", "The downloaded update APK was not found.", null)
-                return@setMethodCallHandler
-            }
-
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                    !packageManager.canRequestPackageInstalls()
-                ) {
-                    startActivity(
-                        Intent(
-                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                            Uri.parse("package:$packageName"),
-                        ),
-                    )
+            when (call.method) {
+                "getDeviceInfo" -> result.success(
+                    mapOf(
+                        "manufacturer" to Build.MANUFACTURER,
+                        "supportedAbis" to Build.SUPPORTED_ABIS.toList(),
+                    ),
+                )
+                "canInstallApks" -> result.success(
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+                        packageManager.canRequestPackageInstalls(),
+                )
+                "openInstallSettings" -> try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:$packageName"),
+                            ),
+                        )
+                    }
+                    result.success(null)
+                } catch (error: Exception) {
                     result.error(
-                        "install_permission_required",
-                        "Allow app installations from this source, then tap Update again.",
+                        "install_settings_unavailable",
+                        error.message ?: "Unable to open install settings.",
                         null,
                     )
-                    return@setMethodCallHandler
                 }
+                "installApk" -> {
+                    val apkPath = call.argument<String>("path")
+                    if (apkPath.isNullOrBlank()) {
+                        result.error(
+                            "invalid_apk_path",
+                            "The update APK path is missing.",
+                            null,
+                        )
+                        return@setMethodCallHandler
+                    }
 
-                val apkUri = FileProvider.getUriForFile(
-                    this,
-                    "$packageName.fileprovider",
-                    apkFile,
-                )
-                val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(
-                        apkUri,
-                        "application/vnd.android.package-archive",
-                    )
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    val apkFile = File(apkPath)
+                    if (!apkFile.isFile) {
+                        result.error(
+                            "apk_not_found",
+                            "The downloaded update APK was not found.",
+                            null,
+                        )
+                        return@setMethodCallHandler
+                    }
+
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                            !packageManager.canRequestPackageInstalls()
+                        ) {
+                            result.error(
+                                "install_permission_required",
+                                "Install unknown apps permission is required.",
+                                null,
+                            )
+                            return@setMethodCallHandler
+                        }
+                        val apkUri = FileProvider.getUriForFile(
+                            this,
+                            "$packageName.fileprovider",
+                            apkFile,
+                        )
+                        val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(
+                                apkUri,
+                                "application/vnd.android.package-archive",
+                            )
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(installIntent)
+                        result.success(null)
+                    } catch (error: ActivityNotFoundException) {
+                        result.error(
+                            "installer_unavailable",
+                            error.message ?: "No package installer is available.",
+                            null,
+                        )
+                    } catch (error: Exception) {
+                        result.error(
+                            "apk_install_failed",
+                            error.message ?: "Unable to open the package installer.",
+                            null,
+                        )
+                    }
                 }
-                startActivity(installIntent)
-                result.success(null)
-            } catch (error: ActivityNotFoundException) {
-                result.error(
-                    "installer_unavailable",
-                    error.message ?: "No package installer is available.",
-                    null,
-                )
-            } catch (error: Exception) {
-                result.error(
-                    "apk_install_failed",
-                    error.message ?: "Unable to open the package installer.",
-                    null,
-                )
+                else -> result.notImplemented()
             }
         }
         MethodChannel(
@@ -158,9 +194,92 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                "getVideoThumbnail" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrBlank()) {
+                        result.error(
+                            "invalid_video_path",
+                            "The video path is missing.",
+                            null,
+                        )
+                    } else {
+                        val videoFile = File(path)
+                        if (!videoFile.isFile) {
+                            result.error(
+                                "video_not_found",
+                                "The video file is unavailable.",
+                                null,
+                            )
+                        } else {
+                            videoThumbnailExecutor.execute {
+                                val retriever = MediaMetadataRetriever()
+                                var bitmap: Bitmap? = null
+                                try {
+                                    retriever.setDataSource(videoFile.absolutePath)
+                                    bitmap = if (
+                                        Build.VERSION.SDK_INT >=
+                                            Build.VERSION_CODES.O_MR1
+                                    ) {
+                                        retriever.getScaledFrameAtTime(
+                                            1_000_000L,
+                                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                                            480,
+                                            480,
+                                        )
+                                    } else {
+                                        retriever.getFrameAtTime(
+                                            1_000_000L,
+                                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                                        )
+                                    }
+                                    val frame = bitmap ?: throw IllegalStateException(
+                                        "No video frame is available.",
+                                    )
+                                    val thumbnailBytes = ByteArrayOutputStream().use {
+                                        output ->
+                                        frame.compress(
+                                            Bitmap.CompressFormat.JPEG,
+                                            82,
+                                            output,
+                                        )
+                                        output.toByteArray()
+                                    }
+                                    val duration = retriever.extractMetadata(
+                                        MediaMetadataRetriever.METADATA_KEY_DURATION,
+                                    )?.toLongOrNull() ?: 0L
+                                    Handler(Looper.getMainLooper()).post {
+                                        result.success(
+                                            mapOf(
+                                                "bytes" to thumbnailBytes,
+                                                "durationMilliseconds" to duration,
+                                            ),
+                                        )
+                                    }
+                                } catch (error: Exception) {
+                                    Handler(Looper.getMainLooper()).post {
+                                        result.error(
+                                            "video_thumbnail_failed",
+                                            error.message
+                                                ?: "Unable to generate a video thumbnail.",
+                                            null,
+                                        )
+                                    }
+                                } finally {
+                                    bitmap?.recycle()
+                                    retriever.release()
+                                }
+                            }
+                        }
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onDestroy() {
+        videoThumbnailExecutor.shutdown()
+        super.onDestroy()
     }
 
     private fun pickExistingDriveFolder(

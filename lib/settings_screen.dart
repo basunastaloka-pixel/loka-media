@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -28,9 +29,11 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with WidgetsBindingObserver {
   static const _appUpdateChannel = MethodChannel('pilah_foto/app_update');
   static const _lastUpdateCheckKey = 'loka_media_last_update_check';
+  static const _pendingUpdatedVersionKey = 'loka_media_pending_updated_version';
 
   late List<TargetFolder> _folders;
   late List<TextEditingController> _controllers;
@@ -43,10 +46,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isDriveBusy = false;
   bool _isCheckingForUpdate = false;
   bool _isDownloadingUpdate = false;
+  String? _currentVersion;
+  String? _latestVersion;
+  AppUpdateRelease? _cachedRelease;
+  File? _cachedApk;
+  int _downloadedBytes = 0;
+  int _downloadTotalBytes = 0;
+  bool _awaitingInstallPermissionSettings = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsFlutterBinding.ensureInitialized();
     _folders = widget.initialFolders
         .map(
@@ -66,6 +77,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         .map((f) => TextEditingController(text: f.label))
         .toList();
     _deleteModeLoad = _loadDeleteMode();
+    unawaited(_refreshInstalledVersion());
   }
 
   Future<SharedPreferences> _getPreferences() async {
@@ -99,6 +111,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     for (var controller in _controllers) {
       controller.dispose();
     }
@@ -178,11 +191,93 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_onAppResumed());
+    }
+  }
+
+  Future<void> _refreshInstalledVersion() async {
+    try {
+      final version = await _appUpdateService.getCurrentVersion();
+      if (!mounted) return;
+      setState(() => _currentVersion = version);
+      final preferences = await _getPreferences();
+      final pendingVersion = preferences.getString(_pendingUpdatedVersionKey);
+      if (pendingVersion == null ||
+          AppUpdateService.compareVersions(version, pendingVersion) < 0) {
+        return;
+      }
+      await preferences.remove(_pendingUpdatedVersionKey);
+      if (!mounted) return;
+      setState(() {
+        _latestVersion = null;
+        _cachedRelease = null;
+        _cachedApk = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Updated to v${pendingVersion.replaceFirst(RegExp(r'^[vV]'), '')}. Please re-open the app.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to load the app version: $error')),
+        );
+      }
+    }
+  }
+
+  Future<void> _onAppResumed() async {
+    if (_awaitingInstallPermissionSettings) {
+      _awaitingInstallPermissionSettings = false;
+      try {
+        final canInstall =
+            await _appUpdateChannel.invokeMethod<bool>('canInstallApks') ??
+            false;
+        if (canInstall && _cachedApk != null && _cachedRelease != null) {
+          await _installCachedUpdate(_cachedRelease!, _cachedApk!);
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Install unknown apps is still disabled for Loka Files.',
+              ),
+            ),
+          );
+        }
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Unable to continue the update: $error')),
+          );
+        }
+      }
+    }
+    await _refreshInstalledVersion();
+  }
+
   Future<void> _checkForUpdate() async {
     if (_isCheckingForUpdate || _isDownloadingUpdate) return;
     setState(() => _isCheckingForUpdate = true);
     try {
-      final release = await _appUpdateService.checkForUpdate();
+      final deviceInfo = await _appUpdateChannel
+          .invokeMapMethod<Object?, Object?>('getDeviceInfo');
+      final manufacturer = deviceInfo?['manufacturer'];
+      final supportedAbis = deviceInfo?['supportedAbis'];
+      if (manufacturer is! String || supportedAbis is! List) {
+        throw const FormatException(
+          'Android device information is unavailable.',
+        );
+      }
+      final release = await _appUpdateService.checkForUpdate(
+        manufacturer: manufacturer,
+        supportedAbis: supportedAbis.whereType<String>().toList(),
+      );
       final preferences = await _getPreferences();
       final saved = await preferences.setInt(
         _lastUpdateCheckKey,
@@ -192,6 +287,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         throw StateError('The last update check time could not be saved.');
       }
       if (!mounted) return;
+      setState(() {
+        _latestVersion = release?.version;
+        _cachedRelease = release;
+      });
 
       if (release == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -204,7 +303,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         context: context,
         builder: (context) => AlertDialog(
           title: Text('New version ${release.version} available'),
-          content: const Text('Download and install this update now?'),
+          content: Text(
+            'Download ${release.assetName} and install this update now?',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -232,13 +333,92 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _downloadAndInstallUpdate(AppUpdateRelease release) async {
+    if (_isCheckingForUpdate || _isDownloadingUpdate) return;
     setState(() => _isDownloadingUpdate = true);
+    File? apkFile;
     try {
-      final apkFile = await _appUpdateService.downloadApk(release);
+      final cachedApk = _cachedApk;
+      if (_cachedRelease?.version == release.version &&
+          _cachedRelease?.assetName == release.assetName &&
+          cachedApk != null) {
+        if (await AppUpdateService.isValidApkFile(cachedApk)) {
+          apkFile = cachedApk;
+        } else {
+          if (await cachedApk.exists()) await cachedApk.delete();
+          _cachedApk = null;
+        }
+      }
+      apkFile ??= await _appUpdateService.downloadApk(
+        release,
+        onProgress: (received, total) {
+          if (mounted) {
+            setState(() {
+              _downloadedBytes = received;
+              _downloadTotalBytes = total;
+            });
+          }
+        },
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Download failed. Please try again or download from GitHub Releases.',
+            ),
+          ),
+        );
+      }
+      return;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDownloadingUpdate = false;
+          _downloadedBytes = 0;
+          _downloadTotalBytes = 0;
+        });
+      }
+    }
+
+    if (!mounted) return;
+    final downloadedApk = apkFile;
+    setState(() {
+      _cachedApk = downloadedApk;
+      _cachedRelease = release;
+      _isDownloadingUpdate = true;
+    });
+    try {
+      final canInstall =
+          await _appUpdateChannel.invokeMethod<bool>('canInstallApks') ?? false;
       if (!mounted) return;
-      await _appUpdateChannel.invokeMethod<void>('installApk', {
-        'path': apkFile.path,
-      });
+      if (!canInstall) {
+        final openSettings = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Allow app updates'),
+            content: const Text(
+              'To update inside the app, allow Install unknown apps for Loka Files.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+        if (openSettings == true) {
+          _awaitingInstallPermissionSettings = true;
+          await _appUpdateChannel.invokeMethod<void>('openInstallSettings');
+        }
+        return;
+      }
+      await _installCachedUpdate(release, downloadedApk);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -248,6 +428,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) setState(() => _isDownloadingUpdate = false);
     }
+  }
+
+  Future<void> _installCachedUpdate(
+    AppUpdateRelease release,
+    File apkFile,
+  ) async {
+    if (!await AppUpdateService.isValidApkFile(apkFile)) {
+      if (await apkFile.exists()) await apkFile.delete();
+      _cachedApk = null;
+      throw const FormatException('The downloaded file is not a valid APK.');
+    }
+    final preferences = await _getPreferences();
+    final saved = await preferences.setString(
+      _pendingUpdatedVersionKey,
+      release.version,
+    );
+    if (!saved) {
+      throw StateError('The update version could not be saved.');
+    }
+    try {
+      await _appUpdateChannel.invokeMethod<void>('installApk', {
+        'path': apkFile.path,
+      });
+    } catch (_) {
+      await preferences.remove(_pendingUpdatedVersionKey);
+      rethrow;
+    }
+  }
+
+  String get _downloadProgressLabel {
+    final total = _downloadTotalBytes;
+    final received = _downloadedBytes;
+    final percentage = total == 0 ? 0 : (received * 100 ~/ total);
+    final receivedMb = received / (1024 * 1024);
+    final totalMb = total / (1024 * 1024);
+    return 'Downloading $percentage% '
+        '(${receivedMb.toStringAsFixed(1)} / ${totalMb.toStringAsFixed(1)} MB)';
   }
 
   Future<void> _pickDriveFolderForIndex(int index) async {
@@ -403,21 +620,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildDriveConnectionCard(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: _isCheckingForUpdate || _isDownloadingUpdate
-                    ? null
-                    : _checkForUpdate,
-                icon: _isCheckingForUpdate || _isDownloadingUpdate
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.system_update_alt, size: 18),
-                label: const Text('Check for Update'),
-              ),
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              children: [
+                Text(
+                  _currentVersion == null
+                      ? 'Current version: Loading...'
+                      : AppUpdateService.formatVersionLabel(
+                          _currentVersion!,
+                          latestVersion: _latestVersion,
+                        ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _isCheckingForUpdate || _isDownloadingUpdate
+                      ? null
+                      : _latestVersion == null
+                      ? _checkForUpdate
+                      : () => _downloadAndInstallUpdate(_cachedRelease!),
+                  icon: _isCheckingForUpdate || _isDownloadingUpdate
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.system_update_alt, size: 18),
+                  label: Text(
+                    _isDownloadingUpdate
+                        ? _downloadProgressLabel
+                        : _latestVersion == null
+                        ? 'Check for Update'
+                        : 'Update',
+                  ),
+                ),
+              ],
             ),
           ),
           Container(
@@ -467,9 +707,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       RadioListTile<LocalDeleteMode>(
                         value: LocalDeleteMode.moveToTrash,
                         title: const Text('Move to Trash'),
-                        subtitle: const Text(
-                          'Recoverable for up to 30 days on Android 11+.',
-                        ),
+                        subtitle: const Text('Restorable for 30 days.'),
                         enabled: !_isDeleteModeLoading,
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -478,9 +716,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       RadioListTile<LocalDeleteMode>(
                         value: LocalDeleteMode.deletePermanently,
                         title: const Text('Delete Permanently'),
-                        subtitle: const Text(
-                          'Permanently deleted after upload.',
-                        ),
+                        subtitle: const Text('Cannot be undone.'),
                         enabled: !_isDeleteModeLoading,
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -683,6 +919,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: _addNewSlot,
               icon: const Icon(Icons.add),
               label: const Text('Add folder'),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'Loka Files v${_currentVersion ?? '...'}',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 11,
+              ),
             ),
           ),
         ],

@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import 'services/local_trash_service.dart';
+import 'widgets/trash_media_thumbnail.dart';
 
 class TrashScreen extends StatefulWidget {
   const TrashScreen({super.key});
@@ -11,15 +15,27 @@ class TrashScreen extends StatefulWidget {
 
 class _TrashScreenState extends State<TrashScreen> {
   final LocalTrashService _trashService = LocalTrashService();
-  List<LocalTrashItem> _items = [];
-  bool _isLoading = true;
-  String? _errorMessage;
+  final ScrollController _listScrollController = ScrollController();
+  final ScrollController _gridScrollController = ScrollController();
   final Set<String> _busyItems = {};
+  final Set<String> _selectedItems = {};
+  List<LocalTrashItem> _items = [];
+  TrashSortOrder _sortOrder = TrashSortOrder.newestDeleted;
+  bool _isLoading = true;
+  bool _isGridView = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
     _loadItems();
+  }
+
+  @override
+  void dispose() {
+    _listScrollController.dispose();
+    _gridScrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadItems() async {
@@ -28,10 +44,13 @@ class _TrashScreenState extends State<TrashScreen> {
       _errorMessage = null;
     });
     try {
-      final items = await _trashService.listItems();
+      final sortOrder = await _trashService.getSortOrder();
+      final items = await _trashService.listItems(sortOrder: sortOrder);
       if (!mounted) return;
       setState(() {
+        _sortOrder = sortOrder;
         _items = items;
+        _selectedItems.removeWhere((id) => !items.any((item) => item.id == id));
         _isLoading = false;
       });
     } catch (error) {
@@ -43,26 +62,56 @@ class _TrashScreenState extends State<TrashScreen> {
     }
   }
 
-  Future<void> _restore(LocalTrashItem item) async {
-    if (!_busyItems.add(item.id)) return;
-    setState(() {});
+  Future<void> _changeSortOrder(TrashSortOrder order) async {
     try {
-      await _trashService.restore(item);
+      await _trashService.saveSortOrder(order);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('"${item.fileName}" was restored.')),
-      );
-      await _loadItems();
+      setState(() {
+        _sortOrder = order;
+        _items = LocalTrashService.sortItems(_items, order);
+      });
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to restore this file: $error')),
+          SnackBar(content: Text('Unable to save Trash sort order: $error')),
         );
       }
-    } finally {
-      _busyItems.remove(item.id);
-      if (mounted) setState(() {});
     }
+  }
+
+  void _toggleViewMode() {
+    setState(() {
+      _isGridView = !_isGridView;
+      if (!_isGridView) _selectedItems.clear();
+    });
+  }
+
+  void _toggleSelection(LocalTrashItem item) {
+    setState(() {
+      if (!_selectedItems.add(item.id)) _selectedItems.remove(item.id);
+    });
+  }
+
+  Future<void> _restore(LocalTrashItem item) async {
+    await _runItemAction(
+      [item],
+      _trashService.restore,
+      successMessage: '"${item.fileName}" was restored.',
+      errorPrefix: 'Unable to restore this file',
+    );
+  }
+
+  Future<void> _restoreSelected() async {
+    final selected = _items
+        .where((item) => _selectedItems.contains(item.id))
+        .toList();
+    if (selected.isEmpty) return;
+    await _runItemAction(
+      selected,
+      _trashService.restore,
+      successMessage: '${selected.length} item(s) restored.',
+      errorPrefix: 'Unable to restore selected files',
+    );
   }
 
   Future<void> _deletePermanently(LocalTrashItem item) async {
@@ -70,7 +119,9 @@ class _TrashScreenState extends State<TrashScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete permanently?'),
-        content: Text('"${item.fileName}" will be permanently deleted.'),
+        content: Text(
+          'This cannot be undone. Delete ${item.fileName} permanently?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -83,21 +134,111 @@ class _TrashScreenState extends State<TrashScreen> {
         ],
       ),
     );
-    if (shouldDelete != true || !_busyItems.add(item.id)) return;
-    setState(() {});
+    if (shouldDelete != true) return;
+    await _runItemAction(
+      [item],
+      _trashService.deletePermanently,
+      successMessage: '"${item.fileName}" was permanently deleted.',
+      errorPrefix: 'Unable to delete this file',
+    );
+  }
+
+  Future<void> _deleteSelectedPermanently() async {
+    final selected = _items
+        .where((item) => _selectedItems.contains(item.id))
+        .toList();
+    if (selected.isEmpty) return;
+    if (selected.length == 1) {
+      await _deletePermanently(selected.single);
+      return;
+    }
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete permanently?'),
+        content: Text(
+          'This cannot be undone. Delete ${selected.length} selected files permanently?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete Permanently'),
+          ),
+        ],
+      ),
+    );
+    if (shouldDelete != true) return;
+    await _runItemAction(
+      selected,
+      _trashService.deletePermanently,
+      successMessage: '${selected.length} item(s) permanently deleted.',
+      errorPrefix: 'Unable to delete selected files',
+    );
+  }
+
+  Future<void> _runItemAction(
+    List<LocalTrashItem> items,
+    Future<void> Function(LocalTrashItem) action, {
+    required String successMessage,
+    required String errorPrefix,
+  }) async {
+    setState(() => _busyItems.addAll(items.map((item) => item.id)));
     try {
-      await _trashService.deletePermanently(item);
+      for (final item in items) {
+        await action(item);
+      }
+      if (!mounted) return;
+      setState(() => _selectedItems.removeAll(items.map((item) => item.id)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(successMessage)));
       await _loadItems();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to delete this file: $error')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$errorPrefix: $error')));
+        await _loadItems();
       }
     } finally {
-      _busyItems.remove(item.id);
+      _busyItems.removeAll(items.map((item) => item.id));
       if (mounted) setState(() {});
     }
+  }
+
+  Future<void> _preview(LocalTrashItem item) async {
+    if (_selectedItems.isNotEmpty) {
+      _toggleSelection(item);
+      return;
+    }
+    if (item.isVideo) {
+      await showDialog<void>(
+        context: context,
+        barrierColor: Colors.black,
+        builder: (_) => TrashVideoPreviewDialog(file: File(item.filePath)),
+      );
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        clipBehavior: Clip.antiAlias,
+        child: InteractiveViewer(
+          child: Image.file(
+            File(item.filePath),
+            fit: BoxFit.contain,
+            errorBuilder: (_, _, _) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text('Unable to preview ${item.fileName}.'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -106,6 +247,31 @@ class _TrashScreenState extends State<TrashScreen> {
       appBar: AppBar(
         title: const Text('Trash'),
         actions: [
+          PopupMenuButton<TrashSortOrder>(
+            tooltip: 'Sort Trash',
+            initialValue: _sortOrder,
+            onSelected: _changeSortOrder,
+            itemBuilder: (context) => [
+              _sortMenuItem(TrashSortOrder.newestDeleted, 'Newest first'),
+              _sortMenuItem(TrashSortOrder.oldestDeleted, 'Oldest first'),
+              _sortMenuItem(
+                TrashSortOrder.newestOriginal,
+                'Newest by original date',
+              ),
+              _sortMenuItem(
+                TrashSortOrder.oldestOriginal,
+                'Oldest by original date',
+              ),
+            ],
+            icon: const Icon(Icons.sort),
+          ),
+          IconButton(
+            onPressed: _toggleViewMode,
+            tooltip: _isGridView ? 'Show as a list' : 'Show as a grid',
+            icon: Icon(
+              _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+            ),
+          ),
           IconButton(
             onPressed: _isLoading ? null : _loadItems,
             tooltip: 'Refresh Trash',
@@ -113,92 +279,293 @@ class _TrashScreenState extends State<TrashScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_errorMessage!, textAlign: TextAlign.center),
-                    const SizedBox(height: 12),
-                    FilledButton.tonal(
-                      onPressed: _loadItems,
-                      child: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : _items.isEmpty
-          ? const Center(child: Text('Your Trash is empty.'))
-          : ListView.separated(
-              padding: const EdgeInsets.all(12),
-              itemCount: _items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final item = _items[index];
-                final isBusy = _busyItems.contains(item.id);
-                return Card(
-                  child: ListTile(
-                    leading: Icon(
-                      _isVideo(item.fileName)
-                          ? Icons.video_file_outlined
-                          : Icons.image_outlined,
-                    ),
-                    title: Text(
-                      item.fileName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      '${item.remainingDays} '
-                      '${item.remainingDays == 1 ? 'day' : 'days'} remaining',
-                    ),
-                    trailing: isBusy
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : PopupMenuButton<String>(
-                            tooltip: 'Trash actions',
-                            onSelected: (action) {
-                              if (action == 'restore') {
-                                _restore(item);
-                              } else {
-                                _deletePermanently(item);
-                              }
-                            },
-                            itemBuilder: (context) => const [
-                              PopupMenuItem(
-                                value: 'restore',
-                                child: Text('Restore'),
-                              ),
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Text('Delete Permanently'),
-                              ),
-                            ],
-                          ),
-                  ),
-                );
-              },
-            ),
+      body: Column(
+        children: [
+          _buildRetentionNotice(context),
+          Expanded(child: _buildContent(context)),
+        ],
+      ),
+      bottomNavigationBar: _isGridView && _selectedItems.isNotEmpty
+          ? _buildSelectionBar(context)
+          : null,
     );
   }
 
-  bool _isVideo(String fileName) {
-    final extension = fileName.split('.').last.toLowerCase();
-    return const {
-      'mp4',
-      'mov',
-      'm4v',
-      'avi',
-      'mkv',
-      'webm',
-    }.contains(extension);
+  CheckedPopupMenuItem<TrashSortOrder> _sortMenuItem(
+    TrashSortOrder order,
+    String title,
+  ) {
+    return CheckedPopupMenuItem(
+      value: order,
+      checked: _sortOrder == order,
+      child: Text(title),
+    );
+  }
+
+  Widget _buildRetentionNotice(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: colors.primaryContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Text(
+        'Files in Trash are kept for 30 days, then deleted permanently. Tap Restore to bring back.',
+        style: TextStyle(fontSize: 12),
+      ),
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_errorMessage!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton.tonal(
+                onPressed: _loadItems,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_items.isEmpty) {
+      return const Center(child: Text('Your Trash is empty.'));
+    }
+    if (_isGridView) return _buildGridView(context);
+    return _buildListView();
+  }
+
+  Widget _buildListView() {
+    return ListView.separated(
+      controller: _listScrollController,
+      key: const PageStorageKey<String>('trash-list'),
+      padding: const EdgeInsets.all(12),
+      itemCount: _items.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (context, index) => _buildListItem(_items[index]),
+    );
+  }
+
+  Widget _buildListItem(LocalTrashItem item) {
+    final isBusy = _busyItems.contains(item.id);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InkWell(
+              onTap: isBusy ? null : () => _preview(item),
+              child: TrashMediaThumbnail(item: item, size: 88),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildItemDetails(item, compact: false),
+                  const SizedBox(height: 6),
+                  if (isBusy)
+                    const SizedBox(
+                      height: 36,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 0,
+                      children: [
+                        TextButton.icon(
+                          onPressed: () => _restore(item),
+                          icon: const Icon(Icons.restore, size: 16),
+                          label: const Text('Restore'),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: () => _deletePermanently(item),
+                          icon: const Icon(Icons.delete_forever, size: 16),
+                          label: const Text('Delete Permanently'),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGridView(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = (constraints.maxWidth / 180).floor().clamp(2, 5);
+        return GridView.builder(
+          controller: _gridScrollController,
+          key: const PageStorageKey<String>('trash-grid'),
+          padding: const EdgeInsets.all(12),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 0.7,
+          ),
+          itemCount: _items.length,
+          itemBuilder: (context, index) => _buildGridItem(_items[index]),
+        );
+      },
+    );
+  }
+
+  Widget _buildGridItem(LocalTrashItem item) {
+    final isSelected = _selectedItems.contains(item.id);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        onTap: () => _preview(item),
+        onLongPress: () => _toggleSelection(item),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: TrashMediaThumbnail(item: item)),
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: _buildItemDetails(item, compact: true),
+                ),
+              ],
+            ),
+            if (isSelected)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Theme.of(context).colorScheme.primary
+                      .withValues(alpha: 0.18),
+                ),
+              ),
+            if (isSelected)
+              const Positioned(
+                top: 6,
+                right: 6,
+                child: Icon(Icons.check_circle, color: Colors.white),
+              ),
+            if (_busyItems.contains(item.id))
+              const Positioned.fill(
+                child: ColoredBox(
+                  color: Color(0x66000000),
+                  child: Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildItemDetails(LocalTrashItem item, {required bool compact}) {
+    final bodyStyle = Theme.of(context).textTheme.bodySmall;
+    final remaining = item.remainingDays;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          item.fileName,
+          maxLines: compact ? 2 : 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        Text(
+          'Folder: ${_originalFolderName(item.originalPath)}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: bodyStyle,
+        ),
+        Text(
+          'Deleted ${DateFormat.yMMMd().add_jm().format(item.deletedAt)}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: bodyStyle,
+        ),
+        Text(
+          '$remaining ${remaining == 1 ? 'day' : 'days'} left',
+          style: bodyStyle?.copyWith(
+            color: remaining <= 3
+                ? Theme.of(context).colorScheme.error
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        Text(formatTrashFileSize(item.fileSizeBytes), style: bodyStyle),
+      ],
+    );
+  }
+
+  Widget _buildSelectionBar(BuildContext context) {
+    final count = _selectedItems.length;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _busyItems.isEmpty ? _restoreSelected : null,
+                icon: const Icon(Icons.restore),
+                label: Text('Restore ($count)'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _busyItems.isEmpty
+                    ? _deleteSelectedPermanently
+                    : null,
+                icon: const Icon(Icons.delete_forever),
+                label: const Text('Delete Permanently'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _originalFolderName(String path) {
+    final parts = path.replaceAll('\\', '/').split('/')
+      ..removeWhere((part) => part.isEmpty);
+    return parts.length > 1 ? parts[parts.length - 2] : 'Unknown folder';
   }
 }
