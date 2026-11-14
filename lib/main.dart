@@ -70,7 +70,7 @@ class _PilahFotoAppState extends State<PilahFotoApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'PilahFoto',
+      title: 'Loka Files',
       debugShowCheckedModeBanner: false,
       themeMode: _themeMode,
       theme: _buildTheme(Brightness.light),

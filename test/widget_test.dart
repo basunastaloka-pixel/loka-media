@@ -11,6 +11,7 @@ import 'package:pilah_foto/services/drive_folder_link.dart';
 import 'package:pilah_foto/models/local_delete_mode.dart';
 import 'package:pilah_foto/models/target_folder.dart';
 import 'package:pilah_foto/services/google_drive_service.dart';
+import 'package:pilah_foto/services/local_trash_service.dart';
 import 'package:pilah_foto/services/windows_desktop_oauth.dart';
 import 'package:pilah_foto/settings_screen.dart';
 import 'package:pilah_foto/widgets/drive_folder_picker.dart';
@@ -19,6 +20,7 @@ import 'package:pilah_foto/widgets/video_preview_layout.dart';
 class _FakeGoogleDriveService extends GoogleDriveService {
   String? createdFolderParentId;
   String? receivedFolderLink;
+  Object? folderLinkError;
 
   @override
   DriveAccount? get currentUser =>
@@ -45,10 +47,17 @@ class _FakeGoogleDriveService extends GoogleDriveService {
   @override
   Future<drive.File> getFolderFromLink(String link) async {
     receivedFolderLink = link;
+    if (extractDriveFolderId(link) == null) {
+      throw const FormatException(
+        'Link looks incomplete. Copy the full link from Drive Share.',
+      );
+    }
+    if (folderLinkError case final error?) throw error;
     return drive.File(
       id: 'linked-folder-id',
       name: 'LINKED FOLDER',
       mimeType: 'application/vnd.google-apps.folder',
+      capabilities: drive.FileCapabilities(canAddChildren: true),
     );
   }
 }
@@ -64,8 +73,7 @@ Future<int> _getLoopbackStatusCode(Uri uri) async {
     );
     await socket.flush();
 
-    final statusLine = await utf8
-        .decoder
+    final statusLine = await utf8.decoder
         .bind(socket)
         .transform(const LineSplitter())
         .first
@@ -143,9 +151,7 @@ void main() {
       closeTo(16 / 9, 0.001),
     );
     expect(
-      videoDisplayAspectRatio(
-        const VideoParams(w: 1080, h: 1080, aspect: 1),
-      ),
+      videoDisplayAspectRatio(const VideoParams(w: 1080, h: 1080, aspect: 1)),
       1,
     );
   });
@@ -157,10 +163,7 @@ void main() {
         const Size(800, 1280),
         const Size(1280, 800),
       ]) {
-        final maxSize = Size(
-          screenSize.width * 0.9,
-          screenSize.height * 0.9,
-        );
+        final maxSize = Size(screenSize.width * 0.9, screenSize.height * 0.9);
         final previewSize = videoPreviewSizeForAspectRatio(
           aspectRatio: aspectRatio,
           maxSize: maxSize,
@@ -189,6 +192,11 @@ void main() {
     );
     expect(extractDriveFolderId('https://example.com/folders/123'), isNull);
     expect(extractDriveFolderId('not a link'), isNull);
+    expect(extractDriveFolderId('  Folder-456  '), 'Folder-456');
+    expect(
+      extractDriveFolderId('https://drive.google.com/drive/folders/'),
+      isNull,
+    );
   });
 
   test('app update versions compare numerically', () {
@@ -200,10 +208,7 @@ void main() {
       AppUpdateService.compareVersions('v1.0.7', '1.0.6+6'),
       greaterThan(0),
     );
-    expect(
-      AppUpdateService.compareVersions('v1.0.6', '1.0.6+6'),
-      0,
-    );
+    expect(AppUpdateService.compareVersions('v1.0.6', '1.0.6+6'), 0);
     expect(AppUpdateService.compareVersions('1.2.0', 'v1.2.0'), 0);
     expect(AppUpdateService.compareVersions('1.1.9', '1.2.0'), lessThan(0));
   });
@@ -224,6 +229,27 @@ void main() {
     expect(restored.driveFolderId, 'drive-folder-id');
     expect(restored.driveFolderName, 'Archive');
     expect(restored.driveAccountEmail, 'user@example.com');
+  });
+
+  test('Trash items expire after 30 days', () {
+    final now = DateTime.now();
+    final activeItem = LocalTrashItem(
+      id: 'active',
+      fileName: 'photo.jpg',
+      filePath: '/trash/photo.jpg',
+      originalPath: '/photos/photo.jpg',
+      deletedAt: now,
+    );
+    final expiredItem = LocalTrashItem(
+      id: 'expired',
+      fileName: 'old-photo.jpg',
+      filePath: '/trash/old-photo.jpg',
+      originalPath: '/photos/old-photo.jpg',
+      deletedAt: now.subtract(const Duration(days: 31)),
+    );
+
+    expect(activeItem.remainingDays, 30);
+    expect(expiredItem.remainingDays, 0);
   });
 
   test('legacy local folder preferences remain valid', () {
@@ -436,7 +462,7 @@ void main() {
     expect(find.text('Create New Folder'), findsNothing);
     const folderLink =
         'https://drive.google.com/drive/folders/linked-folder-id';
-    await tester.enterText(find.byType(TextField), folderLink);
+    await tester.enterText(find.byType(TextField), '  $folderLink  ');
     await tester.tap(find.text('Use This Folder'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Select Folder'));
@@ -553,7 +579,7 @@ void main() {
     const folderLink =
         'https://drive.google.com/drive/folders/linked-folder-id';
     await tester.ensureVisible(find.byType(TextField));
-    await tester.enterText(find.byType(TextField), folderLink);
+    await tester.enterText(find.byType(TextField), '  $folderLink  ');
     await tester.tap(find.text('Use This Folder'));
     await tester.pumpAndSettle();
 
@@ -563,6 +589,110 @@ void main() {
     await tester.pumpAndSettle();
     expect(selectedFolder?.id, 'linked-folder-id');
     expect(selectedFolder?.name, 'LINKED FOLDER');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('incomplete Drive folder links cannot be selected', (
+    WidgetTester tester,
+  ) async {
+    final driveService = _FakeGoogleDriveService();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet<DriveFolderSelection>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) =>
+                    DriveFolderPickerModal(driveService: driveService),
+              ),
+              child: const Text('Open picker'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open picker'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add Folder Link'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField),
+      'https://drive.google.com/drive/folders/',
+    );
+    await tester.tap(find.text('Use This Folder'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Link looks incomplete. Copy the full link from Drive Share.'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Select Folder'),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('inaccessible folder links show account-specific guidance', (
+    WidgetTester tester,
+  ) async {
+    final driveService = _FakeGoogleDriveService()
+      ..folderLinkError = Exception('404 File not found');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet<DriveFolderSelection>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) =>
+                    DriveFolderPickerModal(driveService: driveService),
+              ),
+              child: const Text('Open picker'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open picker'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add Folder Link'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField),
+      'https://drive.google.com/drive/folders/linked-folder-id',
+    );
+    await tester.tap(find.text('Use This Folder'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Unable to access this folder. Check that the link is complete and '
+        'that this folder is shared as Editor with the connected Google '
+        'account (user@example.com). If the folder belongs to another '
+        'account, share it to this account first.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Select Folder'),
+          )
+          .onPressed,
+      isNull,
+    );
     expect(tester.takeException(), isNull);
   });
 }

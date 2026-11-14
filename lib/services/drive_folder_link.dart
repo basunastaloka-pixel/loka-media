@@ -1,5 +1,10 @@
 String? extractDriveFolderId(String value) {
-  final uri = Uri.tryParse(value.trim());
+  final trimmedValue = value.trim();
+  if (RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(trimmedValue)) {
+    return trimmedValue;
+  }
+
+  final uri = Uri.tryParse(trimmedValue);
   if (uri == null ||
       uri.scheme != 'https' ||
       !const {'drive.google.com', 'www.drive.google.com'}.contains(uri.host)) {

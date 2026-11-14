@@ -7,7 +7,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.provider.Settings
+import android.media.MediaScannerConnection
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
@@ -126,6 +128,37 @@ class MainActivity : FlutterActivity() {
                     error.message ?: "Unable to open the package installer.",
                     null,
                 )
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "loka_files/storage",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getPublicDocumentsDirectory" -> result.success(
+                    Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOCUMENTS,
+                    ).absolutePath,
+                )
+                "scanRestoredFile" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrBlank()) {
+                        result.error(
+                            "invalid_file_path",
+                            "The restored file path is missing.",
+                            null,
+                        )
+                    } else {
+                        MediaScannerConnection.scanFile(
+                            this,
+                            arrayOf(path),
+                            null,
+                            null,
+                        )
+                        result.success(null)
+                    }
+                }
+                else -> result.notImplemented()
             }
         }
     }

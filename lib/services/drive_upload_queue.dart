@@ -15,12 +15,14 @@ class DriveUploadBatchResult {
   final List<String> uploadedAssetIds;
   final List<String> stagedPaths;
   final int failedCount;
+  final int missingDestinationCount;
 
   const DriveUploadBatchResult({
     required this.id,
     required this.uploadedAssetIds,
     required this.stagedPaths,
     required this.failedCount,
+    required this.missingDestinationCount,
   });
 }
 
@@ -160,6 +162,15 @@ class DriveUploadQueue {
               .whereType<String>()
               .toList(),
           failedCount: jobs.where((job) => job['status'] == 'failed').length,
+          missingDestinationCount: jobs
+              .where(
+                (job) =>
+                    job['status'] == 'failed' &&
+                    (job['error'] as String? ?? '').contains(
+                      'Destination folder not found.',
+                    ),
+              )
+              .length,
         ),
       );
     }
@@ -239,12 +250,15 @@ void driveUploadCallbackDispatcher() {
       }
 
       var uploadedFile = await service.findUploadedFileByTaskId(taskId);
-      uploadedFile ??= await service.uploadFile(
-        file: File(sourcePath),
-        fileName: fileName,
-        parentId: parentId,
-        idempotencyKey: taskId,
-      );
+      if (uploadedFile == null) {
+        await service.validateDestinationFolder(parentId);
+        uploadedFile = await service.uploadFile(
+          file: File(sourcePath),
+          fileName: fileName,
+          parentId: parentId,
+          idempotencyKey: taskId,
+        );
+      }
       if (uploadedFile.id == null) {
         throw StateError('Google Drive did not return an uploaded file ID.');
       }

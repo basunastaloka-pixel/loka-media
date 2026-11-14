@@ -112,11 +112,12 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
     setState(() {
       _isUsingFolderLink = true;
       _folderLinkErrorMessage = null;
+      _linkedFolder = null;
     });
 
     try {
       final folder = await widget.driveService.getFolderFromLink(
-        _folderLinkController.text,
+        _folderLinkController.text.trim(),
       );
       final id = folder.id;
       final name = folder.name;
@@ -135,9 +136,14 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
       }
     } catch (error) {
       if (mounted) {
+        final email =
+            widget.driveService.currentUser?.email ?? 'the connected account';
         setState(
           () => _folderLinkErrorMessage =
-              'Unable to access this folder. Check the link and Google account permissions. $error',
+              'Unable to access this folder. Check that the link is complete '
+              'and that this folder is shared as Editor with the connected '
+              'Google account ($email). If the folder belongs to another '
+              'account, share it to this account first.',
         );
       }
     } finally {

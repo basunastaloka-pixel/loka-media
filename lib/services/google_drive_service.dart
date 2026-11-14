@@ -30,6 +30,15 @@ class GoogleDriveConnectionException implements Exception {
   String toString() => message;
 }
 
+class DriveDestinationFolderException implements Exception {
+  const DriveDestinationFolderException();
+
+  @override
+  String toString() =>
+      'Destination folder not found. It may have been moved or deleted in '
+      'Drive. Check the folder and try again.';
+}
+
 class GoogleDriveService {
   static const _pickerChannel = MethodChannel('pilah_foto/google_drive_picker');
   static const _signInDiagnosticsChannel =
@@ -653,23 +662,57 @@ class GoogleDriveService {
   Future<drive.File> getFolderFromLink(String link) async {
     final folderId = extractDriveFolderId(link);
     if (folderId == null) {
-      throw const FormatException('Enter a valid Google Drive folder link.');
+      throw const FormatException(
+        'Link looks incomplete. Copy the full link from Drive Share.',
+      );
     }
 
     final api = await _requireApi();
     final folder = await api.files.get(
       folderId,
       supportsAllDrives: true,
-      $fields: 'id,name,mimeType',
+      $fields: 'id,name,mimeType,trashed,capabilities(canAddChildren)',
     ) as drive.File;
     if (folder.id != folderId ||
         folder.name == null ||
-        folder.mimeType != _folderMimeType) {
-      throw const FormatException(
-        'The link does not point to an accessible Google Drive folder.',
+        folder.mimeType != _folderMimeType ||
+        folder.trashed == true ||
+        folder.capabilities?.canAddChildren != true) {
+      throw StateError(
+        'The linked folder is not available for uploads by this account.',
       );
     }
     return folder;
+  }
+
+  Future<drive.File> validateDestinationFolder(String folderId) async {
+    try {
+      final api = await _requireApi();
+      final folder = await api.files.get(
+        folderId,
+        supportsAllDrives: true,
+        $fields: 'id,name,mimeType,trashed,parents',
+      ) as drive.File;
+      if (folder.id != folderId ||
+          folder.name == null ||
+          folder.mimeType != _folderMimeType ||
+          folder.trashed == true ||
+          folder.capabilities?.canAddChildren != true) {
+        throw const DriveDestinationFolderException();
+      }
+      return folder;
+    } on DriveDestinationFolderException {
+      rethrow;
+    } catch (error) {
+      final message = error.toString().toLowerCase();
+      if (message.contains('404') ||
+          message.contains('403') ||
+          message.contains('not found') ||
+          message.contains('forbidden')) {
+        throw const DriveDestinationFolderException();
+      }
+      rethrow;
+    }
   }
 
   Future<drive.File?> pickExistingFolder() async {

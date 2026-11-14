@@ -17,7 +17,9 @@ import 'models/local_delete_mode.dart';
 import 'models/target_folder.dart';
 import 'services/drive_upload_queue.dart';
 import 'services/google_drive_service.dart';
+import 'services/local_trash_service.dart';
 import 'settings_screen.dart';
+import 'trash_screen.dart';
 import 'widgets/video_preview_layout.dart';
 
 enum MediaTypeFilter { all, photos, videos }
@@ -67,6 +69,10 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   bool _isLoadingAlbums = false;
   bool _isLoadingPhotos = false;
   bool _isMovingFile = false;
+  bool _isSettingsOpen = false;
+  bool _destinationHintVisible = false;
+  int _destinationHintGeneration = 0;
+  DateTime _ignoreTargetTapUntil = DateTime.fromMillisecondsSinceEpoch(0);
 
   bool _isAscending = false;
   MediaTypeFilter _mediaFilter = MediaTypeFilter.all;
@@ -240,6 +246,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   }
 
   void _toggleSortOrder() {
+    _dismissDestinationHint();
     setState(() {
       _isAscending = !_isAscending;
       _applyFilterAndSort();
@@ -247,6 +254,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   }
 
   void _kembaliKePilihFolder() {
+    _dismissDestinationHint();
     _sealCurrentDriveBatch();
     setState(() {
       _selectedAlbum = null;
@@ -279,7 +287,15 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
 
     final videoFile = file;
     if (!mounted) return;
-    if (videoFile == null || !await videoFile.exists()) {
+    if (videoFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to access this video file.')),
+      );
+      return;
+    }
+    final videoExists = await videoFile.exists();
+    if (!mounted) return;
+    if (!videoExists) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Unable to access this video file.')),
       );
@@ -296,15 +312,13 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   Future<void> pindahFolder(TargetFolder target) async {
     if (currentIndex >= _allPhotos.length || _isMovingFile) return;
 
+    if (DateTime.now().isBefore(_ignoreTargetTapUntil)) {
+      _ignoreTargetTapUntil = DateTime.fromMillisecondsSinceEpoch(0);
+      return;
+    }
+
     if (!target.isConfigured) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Choose a destination for "${target.label}" in Settings first.',
-          ),
-          action: SnackBarAction(label: 'SETTINGS', onPressed: openSettings),
-        ),
-      );
+      _showDestinationRequiredBanner(target);
       return;
     }
 
@@ -330,12 +344,33 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
       return;
     }
 
-    if (target.isDriveDestination && Platform.isAndroid) {
-      _queueDriveUpload(target);
-      return;
+    if (target.isDriveDestination) {
+      setState(() => _isMovingFile = true);
+      try {
+        await _driveService.validateDestinationFolder(target.driveFolderId!);
+      } catch (error) {
+        if (!mounted) return;
+        setState(() => _isMovingFile = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is DriveDestinationFolderException
+                  ? error.toString()
+                  : 'Unable to verify the Drive destination: $error',
+            ),
+          ),
+        );
+        return;
+      }
+      if (!mounted) return;
+      if (Platform.isAndroid) {
+        setState(() => _isMovingFile = false);
+        _queueDriveUpload(target);
+        return;
+      }
     }
 
-    setState(() => _isMovingFile = true);
+    if (!_isMovingFile) setState(() => _isMovingFile = true);
 
     final currentAsset = _allPhotos[currentIndex];
     String? originalPath;
@@ -364,10 +399,9 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
         final deleteMode = LocalDeleteMode.fromPreference(
           preferences.getString(LocalDeleteMode.preferenceKey),
         );
-        final deletedIds = await _removeUploadedDriveAssets(
-          [currentAsset.id],
-          deleteMode,
-        );
+        final deletedIds = await _removeUploadedDriveAssets([
+          currentAsset.id,
+        ], deleteMode);
         if (!deletedIds.contains(currentAsset.id)) {
           throw StateError(
             'The file was uploaded, but could not be removed from this device. '
@@ -411,8 +445,26 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
     } catch (error) {
       if (!mounted) return;
       setState(() => _isMovingFile = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to move file: $error')));
+      var displayError = error;
+      if (target.isDriveDestination) {
+        try {
+          await _driveService.validateDestinationFolder(target.driveFolderId!);
+        } on DriveDestinationFolderException catch (destinationError) {
+          displayError = destinationError;
+        } catch (_) {
+          // Keep the original upload error when the destination remains accessible.
+        }
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            displayError is DriveDestinationFolderException
+                ? displayError.toString()
+                : 'Failed to move file: $displayError',
+          ),
+        ),
+      );
     }
   }
 
@@ -605,6 +657,10 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
           0,
           (total, batch) => total + batch.failedCount,
         );
+        final missingDestinationCount = claimedBatches.fold<int>(
+          0,
+          (total, batch) => total + batch.missingDestinationCount,
+        );
         final messages = <String>[];
         if (deletedCount > 0) {
           messages.add(
@@ -623,6 +679,9 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
           messages.add(
             '$failedCount upload(s) failed; their original files were kept.',
           );
+        }
+        if (missingDestinationCount > 0) {
+          messages.add(const DriveDestinationFolderException().toString());
         }
         if (deletionError != null) {
           messages.add('Bulk deletion could not be completed: $deletionError');
@@ -648,21 +707,22 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   ) async {
     if (assetIds.isEmpty) return const [];
     if (deleteMode == LocalDeleteMode.moveToTrash) {
-      if (!Platform.isAndroid) {
-        throw UnsupportedError(
-          'Moving uploaded media to Trash is only supported on Android.',
-        );
+      final assets = (await Future.wait(assetIds.map(AssetEntity.fromId)))
+          .whereType<AssetEntity>()
+          .toList();
+      final movedIds = <String>[];
+      final trashService = LocalTrashService();
+      for (final asset in assets) {
+        await trashService.moveAssetToTrash(asset);
+        movedIds.add(asset.id);
       }
-      final assets = (await Future.wait(
-        assetIds.map(AssetEntity.fromId),
-      )).whereType<AssetEntity>().toList();
-      if (assets.isEmpty) return const [];
-      return PhotoManager.editor.android.moveToTrash(assets);
+      return movedIds;
     }
     return PhotoManager.editor.deleteWithIds(assetIds);
   }
 
   void skipMedia() {
+    _dismissDestinationHint();
     if (currentIndex >= _allPhotos.length) return;
     setState(() {
       _history.add(
@@ -677,6 +737,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   }
 
   Future<void> undoLastAction() async {
+    _dismissDestinationHint();
     if (_history.isEmpty || _isMovingFile) return;
     if (!_history.last.undoable) return;
 
@@ -706,22 +767,80 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   }
 
   Future<void> openSettings() async {
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute<void>(
-        builder: (context) => SettingsScreen(
-          initialFolders: targetFolders,
-          driveService: _driveService,
-          onSave: (updatedFolders) {
-            setState(() {
-              targetFolders = updatedFolders;
-            });
-            _saveFoldersToPrefs();
+    _dismissDestinationHint();
+    if (_isSettingsOpen) return;
+    _isSettingsOpen = true;
+    try {
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute<void>(
+          builder: (context) => SettingsScreen(
+            initialFolders: targetFolders,
+            driveService: _driveService,
+            onSave: (updatedFolders) {
+              setState(() {
+                targetFolders = updatedFolders;
+              });
+              _saveFoldersToPrefs();
+            },
+          ),
+        ),
+      );
+    } finally {
+      _isSettingsOpen = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  void _showDestinationRequiredBanner(TargetFolder target) {
+    if (_destinationHintVisible) return;
+    _destinationHintVisible = true;
+    final generation = ++_destinationHintGeneration;
+    final messenger = ScaffoldMessenger.of(context);
+    final controller = messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          'Choose a destination for "${target.label}" in Settings first.',
+        ),
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'SETTINGS',
+          onPressed: () {
+            _dismissDestinationHint();
+            openSettings();
           },
         ),
       ),
     );
-    if (mounted) setState(() {});
+    controller.closed.then((_) {
+      if (generation == _destinationHintGeneration) {
+        _destinationHintVisible = false;
+      }
+    });
+  }
+
+  void _dismissDestinationHint() {
+    _destinationHintGeneration++;
+    if (_destinationHintVisible) {
+      _destinationHintVisible = false;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    }
+    _ignoreTargetTapUntil = DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  Future<void> _openTrash() async {
+    _dismissDestinationHint();
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute<void>(builder: (_) => const TrashScreen()),
+    );
+    if (!mounted) return;
+    final selectedAlbum = _selectedAlbum;
+    if (selectedAlbum == null) {
+      await _fetchAlbums();
+    } else {
+      await _selectFolder(selectedAlbum);
+    }
   }
 
   Future<List<TargetFolder>> _editTargets() async {
@@ -730,6 +849,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _openDriveSource() async {
+    _dismissDestinationHint();
     await Navigator.push<void>(
       context,
       MaterialPageRoute<void>(
@@ -751,7 +871,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('PilahFoto', style: TextStyle(fontWeight: FontWeight.w700)),
+              Text('Loka Files', style: TextStyle(fontWeight: FontWeight.w700)),
               Text(
                 'Choose an album to get started',
                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
@@ -759,6 +879,11 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
             ],
           ),
           actions: [
+            TextButton.icon(
+              onPressed: _openTrash,
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Trash'),
+            ),
             if (_driveService.isConnected)
               IconButton(
                 onPressed: _openDriveSource,
@@ -800,7 +925,16 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
 
     if (currentIndex >= total && total > 0) {
       return Scaffold(
-        appBar: AppBar(title: const Text('PilahFoto • Sorting complete')),
+        appBar: AppBar(
+          title: const Text('Loka Files • Sorting complete'),
+          actions: [
+            TextButton.icon(
+              onPressed: _openTrash,
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Trash'),
+            ),
+          ],
+        ),
         body: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
@@ -858,6 +992,13 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
+          actions: [
+            TextButton.icon(
+              onPressed: _openTrash,
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Trash'),
+            ),
+          ],
         ),
         body: Column(
           children: [
@@ -904,6 +1045,11 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
         ),
         actions: [
           IconButton(
+            onPressed: _openTrash,
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Trash',
+          ),
+          IconButton(
             onPressed: _history.isNotEmpty && _history.last.undoable
                 ? undoLastAction
                 : null,
@@ -919,10 +1065,37 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          if (constraints.maxWidth < 820) {
-            return Column(
+      body: Listener(
+        onPointerDown: (_) {
+          if (!_destinationHintVisible) return;
+          _destinationHintVisible = false;
+          _destinationHintGeneration++;
+          _ignoreTargetTapUntil = DateTime.now().add(
+            const Duration(milliseconds: 300),
+          );
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        },
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 820) {
+              return Column(
+                children: [
+                  Expanded(
+                    flex: 6,
+                    child: Column(
+                      children: [
+                        _buildSortAndFilterBar(),
+                        LinearProgressIndicator(value: currentIndex / total),
+                        Expanded(child: _buildPhotoPreview(currentPhoto)),
+                      ],
+                    ),
+                  ),
+                  Expanded(flex: 4, child: _buildTargetPanel(compact: true)),
+                ],
+              );
+            }
+
+            return Row(
               children: [
                 Expanded(
                   flex: 6,
@@ -934,27 +1107,11 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
                     ],
                   ),
                 ),
-                Expanded(flex: 4, child: _buildTargetPanel(compact: true)),
+                Expanded(flex: 4, child: _buildTargetPanel(compact: false)),
               ],
             );
-          }
-
-          return Row(
-            children: [
-              Expanded(
-                flex: 6,
-                child: Column(
-                  children: [
-                    _buildSortAndFilterBar(),
-                    LinearProgressIndicator(value: currentIndex / total),
-                    Expanded(child: _buildPhotoPreview(currentPhoto)),
-                  ],
-                ),
-              ),
-              Expanded(flex: 4, child: _buildTargetPanel(compact: false)),
-            ],
-          );
-        },
+          },
+        ),
       ),
     );
   }
@@ -1091,6 +1248,7 @@ class _SortScreenState extends State<SortScreen> with WidgetsBindingObserver {
   }
 
   void _setMediaFilter(MediaTypeFilter filter) {
+    _dismissDestinationHint();
     setState(() {
       _mediaFilter = filter;
       _applyFilterAndSort();
