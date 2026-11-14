@@ -46,6 +46,50 @@ class DriveDestinationFolderException implements Exception {
             'Drive. Check the folder and try again.';
 }
 
+class DriveFolderLinkException implements Exception {
+  final String folderId;
+  final String accountEmail;
+  final int? httpStatus;
+  final String apiError;
+  final bool mayBeDriveFileScopeLimitation;
+
+  const DriveFolderLinkException({
+    required this.folderId,
+    required this.accountEmail,
+    required this.httpStatus,
+    required this.apiError,
+    this.mayBeDriveFileScopeLimitation = false,
+  });
+
+  String get displayMessage {
+    final lines = <String>[];
+    if (mayBeDriveFileScopeLimitation) {
+      lines.add(
+        'This folder was not created by Loka Files, so Drive does not allow '
+        'access with current permission.',
+      );
+      if (httpStatus == 404) {
+        lines.add(
+          'Drive does not distinguish a missing folder from one hidden by '
+          'the current permission.',
+        );
+      }
+    } else {
+      lines.add('Unable to validate this folder.');
+    }
+    lines.addAll([
+      'Folder ID: $folderId',
+      'HTTP status: ${httpStatus ?? 'not available'}',
+      'Drive API error: $apiError',
+      'Account: $accountEmail',
+    ]);
+    return lines.join('\n');
+  }
+
+  @override
+  String toString() => displayMessage;
+}
+
 class GoogleDriveService {
   static const _pickerChannel = MethodChannel('pilah_foto/google_drive_picker');
   static const _signInDiagnosticsChannel = MethodChannel(
@@ -672,19 +716,60 @@ class GoogleDriveService {
       );
     }
 
-    final api = await _requireApi();
-    final folder = await api.files.get(
-      folderId,
-      supportsAllDrives: true,
-      $fields: 'id,name,mimeType,trashed,parents,capabilities(canAddChildren)',
-    ) as drive.File;
+    final accountEmail = _currentUser?.email ?? 'unknown (not connected)';
+    late final drive.File folder;
+    try {
+      final api = await _requireApi();
+      folder = await api.files.get(
+        folderId,
+        supportsAllDrives: true,
+        $fields:
+            'id,name,mimeType,trashed,parents,capabilities(canAddChildren)',
+      ) as drive.File;
+    } on drive.DetailedApiRequestError catch (error) {
+      final reasons = error.errors
+          .map((detail) => detail.reason)
+          .whereType<String>()
+          .toSet();
+      final reasonText = reasons.isEmpty ? '' : '${reasons.join(', ')}: ';
+      final status = error.status;
+      final isFileScopeError =
+          (status == 404 && reasons.contains('notFound')) ||
+          (status == 403 &&
+              reasons.any(
+                (reason) => {
+                  'insufficientFilePermissions',
+                  'insufficientPermissions',
+                  'forbidden',
+                }.contains(reason),
+              ));
+      throw DriveFolderLinkException(
+        folderId: folderId,
+        accountEmail: accountEmail,
+        httpStatus: status,
+        apiError: '$reasonText${error.message ?? 'Unknown Drive API error'}',
+        mayBeDriveFileScopeLimitation: isFileScopeError,
+      );
+    } catch (error) {
+      throw DriveFolderLinkException(
+        folderId: folderId,
+        accountEmail: accountEmail,
+        httpStatus: null,
+        apiError: error.toString(),
+      );
+    }
     if (folder.id != folderId ||
         folder.name == null ||
         folder.mimeType != _folderMimeType ||
         folder.trashed == true ||
         folder.capabilities?.canAddChildren != true) {
-      throw StateError(
-        'The linked folder is not available for uploads by this account.',
+      throw DriveFolderLinkException(
+        folderId: folderId,
+        accountEmail: accountEmail,
+        httpStatus: 200,
+        apiError:
+            'Drive returned the folder, but this account cannot add children '
+            'to it. The folder must be active and writable.',
       );
     }
     return folder;

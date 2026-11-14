@@ -800,7 +800,13 @@ void main() {
     WidgetTester tester,
   ) async {
     final driveService = _FakeGoogleDriveService()
-      ..folderLinkError = Exception('404 File not found');
+      ..folderLinkError = const DriveFolderLinkException(
+        folderId: 'linked-folder-id',
+        accountEmail: 'user@example.com',
+        httpStatus: 404,
+        apiError: 'notFound: File not found',
+        mayBeDriveFileScopeLimitation: true,
+      );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -833,10 +839,14 @@ void main() {
 
     expect(
       find.text(
-        'Unable to access this folder. Check that the link is complete and '
-        'that this folder is shared as Editor with the connected Google '
-        'account (user@example.com). If the folder belongs to another '
-        'account, share it to this account first.',
+        'This folder was not created by Loka Files, so Drive does not allow '
+        'access with current permission.\n'
+        'Drive does not distinguish a missing folder from one hidden by the '
+        'current permission.\n'
+        'Folder ID: linked-folder-id\n'
+        'HTTP status: 404\n'
+        'Drive API error: notFound: File not found\n'
+        'Account: user@example.com',
       ),
       findsOneWidget,
     );
@@ -848,6 +858,42 @@ void main() {
           .onPressed,
       isNull,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('bare folder IDs are accepted and resolved to their name', (
+    WidgetTester tester,
+  ) async {
+    final driveService = _FakeGoogleDriveService();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet<DriveFolderSelection>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) =>
+                    DriveFolderPickerModal(driveService: driveService),
+              ),
+              child: const Text('Open picker'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open picker'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add Folder Link'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'linked-folder-id');
+    await tester.tap(find.text('Use This Folder'));
+    await tester.pumpAndSettle();
+
+    expect(driveService.receivedFolderLink, 'linked-folder-id');
+    expect(find.text('LINKED FOLDER'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

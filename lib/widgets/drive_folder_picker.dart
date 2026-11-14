@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 
+import '../services/drive_folder_link.dart';
 import '../services/google_drive_service.dart';
 
 enum _DriveFolderTab { connectedDrive, addFolderLink }
@@ -141,16 +142,22 @@ class _DriveFolderPickerModalState extends State<DriveFolderPickerModal> {
       if (mounted) {
         setState(() => _folderLinkErrorMessage = error.message.toString());
       }
+    } on DriveFolderLinkException catch (error) {
+      if (mounted) {
+        setState(() => _folderLinkErrorMessage = error.displayMessage);
+      }
     } catch (error) {
       if (mounted) {
         final email =
             widget.driveService.currentUser?.email ?? 'the connected account';
+        final folderId = extractDriveFolderId(_folderLinkController.text);
         setState(
           () => _folderLinkErrorMessage =
-              'Unable to access this folder. Check that the link is complete '
-              'and that this folder is shared as Editor with the connected '
-              'Google account ($email). If the folder belongs to another '
-              'account, share it to this account first.',
+              'Unable to validate this folder.\n'
+              'Folder ID: ${folderId ?? 'not available'}\n'
+              'HTTP status: not available\n'
+              'Drive API error: $error\n'
+              'Account: $email',
         );
       }
     } finally {
