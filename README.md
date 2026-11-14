@@ -15,11 +15,13 @@ Settings, and the language preference is saved on the device.
    project used by the app.
 2. Configure the OAuth consent screen and add test accounts if the app remains
    in Testing mode.
-3. Create an **Android** OAuth client for package
-   `com.example.pilah_foto`. Register the SHA-1 certificate fingerprint of the
-   key that signs the APK. Google Sign-In selects this Android client from the
-   package name and signing certificate; the Android client ID is not a Dart
-   `serverClientId`.
+3. Keep the existing Android OAuth clients for `com.example.pilah_foto` while
+   creating two new Android OAuth clients for `com.lokamedia.app`: one named
+   **Kantor** and one named **Laptop**. Use the same SHA-1 fingerprints as the
+   corresponding old clients. Do not delete the old clients; existing installs
+   still use the old package. Google Sign-In selects the Android client from
+   the package name and signing certificate; the Android client ID is not a
+   Dart `serverClientId`.
    To read a keystore fingerprint, run:
 
    ```powershell
@@ -57,9 +59,9 @@ account from Settings.
 The app supports an optional Firebase `google-services.json` for local Android
 builds. In **Firebase Console > Project settings > Your apps**, select the
 Firebase project linked to the same Google Cloud project as the OAuth clients.
-If there is no Android app yet, add one with package
-`com.example.pilah_foto`, register the debug and release SHA-1 fingerprints,
-then download its `google-services.json`. Place the downloaded file at
+If there is no Android app yet, add one with package `com.lokamedia.app`,
+register the debug and release SHA-1 fingerprints, then download its
+`google-services.json`. Place the downloaded file at
 `android/app/google-services.json`. The Google Services Gradle plugin is
 applied only when this file exists, and the file must include a Web OAuth
 client.
@@ -73,6 +75,12 @@ The current Android release configuration uses debug signing. Register the
 SHA-1 fingerprint for the certificate that actually signs the APK. GitHub-hosted
 runner debug keys are not stable across runs, so reliable release sign-in
 requires a stable release signing key.
+
+The Android package changed from `com.example.pilah_foto` to
+`com.lokamedia.app`; Android treats these as separate apps. The new app displays
+a first-launch reminder to back up Target folders and uninstall the old app.
+To sign in to Drive, add the two new Android OAuth clients described above and
+keep the old clients until old-package installs are no longer in use.
 
 ## Google Drive features
 

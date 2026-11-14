@@ -319,6 +319,26 @@ void main() {
     );
   });
 
+  test('package migration notice is shown once and persists', () async {
+    SharedPreferences.setMockInitialValues({});
+
+    expect(await AppPreferences.hasSeenPackageMigrationNotice(), isFalse);
+    await AppPreferences.markPackageMigrationNoticeSeen();
+    expect(await AppPreferences.hasSeenPackageMigrationNotice(), isTrue);
+    expect(
+      const AppLocalizations(Locale('en')).text(
+        'This is new package version. Please uninstall old Loka Files (com.example.pilah_foto) after backing up your Target folders.',
+      ),
+      'This is new package version. Please uninstall old Loka Files (com.example.pilah_foto) after backing up your Target folders.',
+    );
+    expect(
+      const AppLocalizations(Locale('id')).text(
+        'This is new package version. Please uninstall old Loka Files (com.example.pilah_foto) after backing up your Target folders.',
+      ),
+      contains('com.example.pilah_foto'),
+    );
+  });
+
   test('existing installations skip the first-run App Tour', () async {
     SharedPreferences.setMockInitialValues({'saved_target_folders': '[]'});
 

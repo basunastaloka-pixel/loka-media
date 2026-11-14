@@ -9,7 +9,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:REPLACE_WITH_PROJECT_NUMBER:android:REPLACE_WITH_APP_ID",
         "android_client_info": {
-          "package_name": "com.example.pilah_foto"
+          "package_name": "com.lokamedia.app"
         }
       },
       "oauth_client": [
@@ -17,7 +17,7 @@
           "client_id": "REPLACE_WITH_ANDROID_CLIENT_ID.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.example.pilah_foto",
+            "package_name": "com.lokamedia.app",
             "certificate_hash": "REPLACE_WITH_SHA1_WITHOUT_COLONS"
           }
         },

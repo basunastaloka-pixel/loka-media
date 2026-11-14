@@ -27,6 +27,7 @@ enum AppLanguage {
 class AppPreferences {
   static const languageKey = 'loka_files_language';
   static const tourCompletedKey = 'tour_completed';
+  static const packageMigrationNoticeKey = 'package_migration_notice_seen';
 
   static Future<AppLanguage> loadLanguage() async {
     final preferences = await SharedPreferences.getInstance();
@@ -66,6 +67,18 @@ class AppPreferences {
     final preferences = await SharedPreferences.getInstance();
     if (!await preferences.setBool(tourCompletedKey, true)) {
       throw StateError('The App Tour completion could not be saved.');
+    }
+  }
+
+  static Future<bool> hasSeenPackageMigrationNotice() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getBool(packageMigrationNoticeKey) ?? false;
+  }
+
+  static Future<void> markPackageMigrationNoticeSeen() async {
+    final preferences = await SharedPreferences.getInstance();
+    if (!await preferences.setBool(packageMigrationNoticeKey, true)) {
+      throw StateError('The package migration notice could not be saved.');
     }
   }
 }
@@ -149,9 +162,10 @@ const Map<String, String> _indonesianTranslations = {
   'Unable to validate this folder.': 'Tidak dapat memvalidasi folder ini.',
   'Retry': 'Coba lagi',
   'Press Back again to exit': 'Tekan Kembali sekali lagi untuk keluar',
+  'This is new package version. Please uninstall old Loka Files (com.example.pilah_foto) after backing up your Target folders.': 'Ini adalah versi paket baru. Harap hapus instalasi Loka Files lama (com.example.pilah_foto) setelah mencadangkan folder Target Anda.',
+  'OK': 'Oke',
   'Start Over': 'Ulang dari Awal',
-  'Start sorting from the first photo again? Current position will be reset.':
-      'Mulai memilah dari foto pertama lagi? Posisi saat ini akan diatur ulang.',
+  'Start sorting from the first photo again? Current position will be reset.': 'Mulai memilah dari foto pertama lagi? Posisi saat ini akan diatur ulang.',
   'Yes, Start Over': 'Ya, Ulang dari Awal',
   'New Category': 'Kategori Baru',
   'media': 'media',
@@ -297,8 +311,7 @@ const Map<String, String> _indonesianTranslations = {
       'Tidak dapat menyimpan tujuan Drive: {error}',
   "Folder '{folder}' was recreated in Drive. Please re-pick the destination.":
       "Folder '{folder}' dibuat ulang di Drive. Pilih kembali tujuan tersebut.",
-  'Destination folder not found. It may have been moved or deleted in Drive. Check the folder and try again.':
-      'Folder tujuan tidak ditemukan. Folder mungkin telah dipindahkan atau dihapus di Drive. Periksa folder tersebut dan coba lagi.',
+  'Destination folder not found. It may have been moved or deleted in Drive. Check the folder and try again.': 'Folder tujuan tidak ditemukan. Folder mungkin telah dipindahkan atau dihapus di Drive. Periksa folder tersebut dan coba lagi.',
   'Could not queue {file} for Drive upload: {error}':
       'Tidak dapat menambahkan {file} ke antrean upload Drive: {error}',
   'Moved {count} local item(s) to Trash.':

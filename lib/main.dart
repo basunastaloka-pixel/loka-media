@@ -39,10 +39,13 @@ class PilahFotoApp extends StatefulWidget {
 }
 
 class _PilahFotoAppState extends State<PilahFotoApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   ThemeMode _themeMode = ThemeMode.system;
   AppLanguage _language = AppLanguage.english;
   bool _isLoadingPreferences = true;
   bool _tourCompleted = false;
+  bool _packageMigrationNoticePending = false;
+  bool _isShowingPackageMigrationNotice = false;
   Object? _preferencesError;
 
   @override
@@ -68,11 +71,18 @@ class _PilahFotoAppState extends State<PilahFotoApp> {
     try {
       final language = await AppPreferences.loadLanguage();
       final tourCompleted = await AppPreferences.hasCompletedTour();
+      final packageMigrationNoticeSeen =
+          !Platform.isAndroid ||
+          await AppPreferences.hasSeenPackageMigrationNotice();
       if (!mounted) return;
       setState(() {
         _language = language;
         _tourCompleted = tourCompleted;
+        _packageMigrationNoticePending = !packageMigrationNoticeSeen;
         _isLoadingPreferences = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showPackageMigrationNotice();
       });
     } catch (error) {
       if (!mounted) return;
@@ -85,6 +95,54 @@ class _PilahFotoAppState extends State<PilahFotoApp> {
 
   Future<void> _completeFirstTour() async {
     if (mounted) setState(() => _tourCompleted = true);
+  }
+
+  Future<void> _showPackageMigrationNotice() async {
+    if (!_packageMigrationNoticePending || _isShowingPackageMigrationNotice) {
+      return;
+    }
+    final dialogContext = _navigatorKey.currentContext;
+    if (dialogContext == null) return;
+    _isShowingPackageMigrationNotice = true;
+    try {
+      await showDialog<void>(
+        context: dialogContext,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Text(
+            context.tr(
+              'This is new package version. Please uninstall old Loka Files (com.example.pilah_foto) after backing up your Target folders.',
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(context.tr('OK')),
+            ),
+          ],
+        ),
+      );
+      await AppPreferences.markPackageMigrationNoticeSeen();
+      if (mounted) {
+        setState(() => _packageMigrationNoticePending = false);
+      }
+    } catch (error) {
+      if (!dialogContext.mounted) return;
+      if (mounted) {
+        setState(() => _packageMigrationNoticePending = false);
+      }
+      ScaffoldMessenger.of(dialogContext).showSnackBar(
+        SnackBar(
+          content: Text(
+            dialogContext.tr('Unable to save app settings: {error}', {
+              'error': error,
+            }),
+          ),
+        ),
+      );
+    } finally {
+      _isShowingPackageMigrationNotice = false;
+    }
   }
 
   Widget _buildHome() {
@@ -158,6 +216,7 @@ class _PilahFotoAppState extends State<PilahFotoApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'Loka Files',
       debugShowCheckedModeBanner: false,
       locale: _language.locale,

@@ -1,4 +1,4 @@
-package com.example.pilah_foto
+package com.lokamedia.app
 
 import android.accounts.Account
 import android.app.Activity

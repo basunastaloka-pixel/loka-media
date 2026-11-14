@@ -9,7 +9,7 @@ if (file("google-services.json").isFile) {
 }
 
 android {
-    namespace = "com.example.pilah_foto"
+    namespace = "com.lokamedia.app"
     compileSdk = 36
     // ndkVersion = flutter.ndkVersion
 
@@ -19,7 +19,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.pilah_foto"
+        applicationId = "com.lokamedia.app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
