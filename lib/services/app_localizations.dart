@@ -148,6 +148,7 @@ const Map<String, String> _indonesianTranslations = {
   'Drive does not distinguish a missing folder from one hidden by the current permission.': 'Drive tidak membedakan folder yang tidak ditemukan dengan folder yang tersembunyi karena izin saat ini.',
   'Unable to validate this folder.': 'Tidak dapat memvalidasi folder ini.',
   'Retry': 'Coba lagi',
+  'Press Back again to exit': 'Tekan Kembali sekali lagi untuk keluar',
   'New Category': 'Kategori Baru',
   'media': 'media',
   'Language': 'Bahasa',

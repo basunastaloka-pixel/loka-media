@@ -67,6 +67,7 @@ class _SortScreenState extends State<SortScreen>
 
   List<AssetPathEntity> _albums = [];
   AssetPathEntity? _selectedAlbum;
+  AssetPathEntity? _pausedAlbum;
 
   bool _albumListView = false;
   List<AssetEntity> _rawPhotos = [];
@@ -93,6 +94,7 @@ class _SortScreenState extends State<SortScreen>
   Map<String, int> movedCounts = {};
 
   int currentIndex = 0;
+  DateTime? _lastHomeBackAt;
   final List<SortHistory> _history = [];
   final Set<String> _deletingDriveBatches = {};
   Timer? _driveBatchPollTimer;
@@ -209,6 +211,9 @@ class _SortScreenState extends State<SortScreen>
     final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
       type: RequestType.common,
       hasAll: true,
+      filterOption: FilterOptionGroup(
+        orders: const [OrderOption(type: OrderOptionType.createDate)],
+      ),
     );
 
     setState(() {
@@ -219,6 +224,16 @@ class _SortScreenState extends State<SortScreen>
 
   Future<void> _selectFolder(AssetPathEntity album) async {
     _sealCurrentDriveBatch();
+    if (_pausedAlbum?.id == album.id) {
+      setState(() {
+        _selectedAlbum = album;
+        _pausedAlbum = null;
+        _isLoadingPhotos = false;
+      });
+      return;
+    }
+
+    _pausedAlbum = null;
     setState(() {
       _selectedAlbum = album;
       _isLoadingPhotos = true;
@@ -275,11 +290,48 @@ class _SortScreenState extends State<SortScreen>
     _sealCurrentDriveBatch();
     setState(() {
       _selectedAlbum = null;
+      _pausedAlbum = null;
       _rawPhotos = [];
       _allPhotos = [];
       _mediaFilter = MediaTypeFilter.all;
     });
     _fetchAlbums();
+  }
+
+  void _returnToAlbumsPreservingSort() {
+    final album = _selectedAlbum;
+    if (album == null) return;
+    _dismissDestinationHint();
+    _sealCurrentDriveBatch();
+    setState(() {
+      _pausedAlbum = album;
+      _selectedAlbum = null;
+      _isLoadingPhotos = false;
+    });
+  }
+
+  void _handleSystemBack() {
+    if (_selectedAlbum != null) {
+      _returnToAlbumsPreservingSort();
+      return;
+    }
+
+    final now = DateTime.now();
+    final previousBack = _lastHomeBackAt;
+    if (previousBack != null &&
+        now.difference(previousBack) <= const Duration(seconds: 2)) {
+      unawaited(SystemNavigator.pop());
+      return;
+    }
+    _lastHomeBackAt = now;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(context.tr('Press Back again to exit')),
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   void _playVideoDialog(AssetEntity asset) async {
@@ -964,13 +1016,13 @@ class _SortScreenState extends State<SortScreen>
               _saveFoldersToPrefs();
             },
           ),
+          maintainState: true,
         ),
       );
     } finally {
       _isSettingsOpen = false;
       if (mounted) setState(() {});
     }
-
   }
 
   void _showDestinationRequiredBanner(TargetFolder target) {
@@ -1015,7 +1067,10 @@ class _SortScreenState extends State<SortScreen>
     _dismissDestinationHint();
     await Navigator.push<void>(
       context,
-      MaterialPageRoute<void>(builder: (_) => const TrashScreen()),
+      MaterialPageRoute<void>(
+        builder: (_) => const TrashScreen(),
+        maintainState: true,
+      ),
     );
   }
 
@@ -1034,6 +1089,7 @@ class _SortScreenState extends State<SortScreen>
           targetFolders: targetFolders,
           onEditTargets: _editTargets,
         ),
+        maintainState: true,
       ),
     );
   }
@@ -1041,6 +1097,16 @@ class _SortScreenState extends State<SortScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    return PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _handleSystemBack();
+      },
+      child: _buildScreen(context),
+    );
+  }
+
+  Widget _buildScreen(BuildContext context) {
     if (_selectedAlbum == null) {
       return Scaffold(
         appBar: AppBar(
@@ -1178,7 +1244,7 @@ class _SortScreenState extends State<SortScreen>
       return Scaffold(
         appBar: AppBar(
           leading: IconButton(
-            onPressed: _kembaliKePilihFolder,
+            onPressed: _returnToAlbumsPreservingSort,
             icon: const Icon(Icons.arrow_back),
             tooltip: context.tr('Back to albums'),
           ),
@@ -1217,7 +1283,7 @@ class _SortScreenState extends State<SortScreen>
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          onPressed: _kembaliKePilihFolder,
+          onPressed: _returnToAlbumsPreservingSort,
           icon: const Icon(Icons.arrow_back),
           tooltip: context.tr('Back to albums'),
         ),
