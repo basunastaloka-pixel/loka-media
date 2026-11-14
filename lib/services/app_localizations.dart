@@ -149,6 +149,10 @@ const Map<String, String> _indonesianTranslations = {
   'Unable to validate this folder.': 'Tidak dapat memvalidasi folder ini.',
   'Retry': 'Coba lagi',
   'Press Back again to exit': 'Tekan Kembali sekali lagi untuk keluar',
+  'Start Over': 'Ulang dari Awal',
+  'Start sorting from the first photo again? Current position will be reset.':
+      'Mulai memilah dari foto pertama lagi? Posisi saat ini akan diatur ulang.',
+  'Yes, Start Over': 'Ya, Ulang dari Awal',
   'New Category': 'Kategori Baru',
   'media': 'media',
   'Language': 'Bahasa',

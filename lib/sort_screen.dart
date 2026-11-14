@@ -18,6 +18,7 @@ import 'models/target_folder.dart';
 import 'services/drive_upload_queue.dart';
 import 'services/google_drive_service.dart';
 import 'services/local_trash_service.dart';
+import 'services/sort_position.dart';
 import 'settings_screen.dart';
 import 'trash_screen.dart';
 import 'services/app_localizations.dart';
@@ -246,15 +247,16 @@ class _SortScreenState extends State<SortScreen>
     );
 
     _rawPhotos = assets;
-    _applyFilterAndSort();
+    _applyFilterAndSort(resetProgress: true);
 
     setState(() {
       _isLoadingPhotos = false;
     });
   }
 
-  void _applyFilterAndSort() {
+  void _applyFilterAndSort({bool resetProgress = false}) {
     _sealCurrentDriveBatch();
+    final previousOrder = _allPhotos.map((asset) => asset.id).toList();
     List<AssetEntity> temp = List.from(_rawPhotos);
 
     if (_mediaFilter == MediaTypeFilter.photos) {
@@ -269,11 +271,20 @@ class _SortScreenState extends State<SortScreen>
       temp.sort((a, b) => b.createDateTime.compareTo(a.createDateTime));
     }
 
+    final nextOrder = temp.map((asset) => asset.id).toList();
     setState(() {
       _allPhotos = temp;
-      currentIndex = 0;
-      _history.clear();
-      movedCounts.clear();
+      currentIndex = resetProgress
+          ? 0
+          : resolveSortPosition(
+              previousOrder: previousOrder,
+              currentIndex: currentIndex,
+              nextOrder: nextOrder,
+            );
+      if (resetProgress) {
+        _history.clear();
+        movedCounts.clear();
+      }
     });
   }
 
@@ -282,6 +293,42 @@ class _SortScreenState extends State<SortScreen>
     setState(() {
       _isAscending = !_isAscending;
       _applyFilterAndSort();
+    });
+  }
+
+  Future<void> _confirmStartOver() async {
+    if (_isMovingFile || _allPhotos.isEmpty) return;
+    final shouldStartOver = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        content: Text(
+          context.tr(
+            'Start sorting from the first photo again? Current position will be reset.',
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(context.tr('Yes, Start Over')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.tr('Cancel')),
+          ),
+        ],
+      ),
+    );
+    if (shouldStartOver != true || !mounted) return;
+
+    _dismissDestinationHint();
+    _sealCurrentDriveBatch();
+    setState(() {
+      currentIndex = resolveSortPosition(
+        previousOrder: _allPhotos.map((asset) => asset.id).toList(),
+        currentIndex: currentIndex,
+        nextOrder: _allPhotos.map((asset) => asset.id).toList(),
+        startOver: true,
+      );
     });
   }
 
@@ -976,12 +1023,19 @@ class _SortScreenState extends State<SortScreen>
       }
     }
 
+    final actionPhotoIndex = _allPhotos.indexWhere(
+      (photo) => photo.id == lastAction.photo.id,
+    );
     setState(() {
       if ((movedCounts[lastAction.targetLabel] ?? 0) > 0) {
         movedCounts[lastAction.targetLabel] =
             movedCounts[lastAction.targetLabel]! - 1;
       }
-      currentIndex--;
+      currentIndex = actionPhotoIndex >= 0
+          ? actionPhotoIndex
+          : _allPhotos.isEmpty
+          ? 0
+          : currentIndex.clamp(0, _allPhotos.length - 1).toInt();
       _isMovingFile = false;
     });
   }
@@ -1226,6 +1280,14 @@ class _SortScreenState extends State<SortScreen>
                 ),
               ),
               const SizedBox(height: 24),
+              OutlinedButton.icon(
+                onPressed: _isMovingFile || _allPhotos.isEmpty
+                    ? null
+                    : _confirmStartOver,
+                icon: const Icon(Icons.restart_alt),
+                label: Text(context.tr('Start Over')),
+              ),
+              const SizedBox(height: 8),
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size.fromHeight(48),
@@ -1822,8 +1884,10 @@ class _SortScreenState extends State<SortScreen>
         color: colorScheme.surface,
         border: Border(bottom: BorderSide(color: colorScheme.outlineVariant)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.start,
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           OutlinedButton.icon(
             onPressed: _toggleSortOrder,
@@ -1845,8 +1909,26 @@ class _SortScreenState extends State<SortScreen>
               side: BorderSide(color: colorScheme.outlineVariant),
             ),
           ),
-          const SizedBox(width: 6),
           _buildFilterMenu(controlBorderRadius),
+          OutlinedButton.icon(
+            onPressed: _isMovingFile || _allPhotos.isEmpty
+                ? null
+                : _confirmStartOver,
+            icon: const Icon(Icons.restart_alt, size: 15),
+            label: Text(
+              context.tr('Start Over'),
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: colorScheme.onSurfaceVariant,
+              minimumSize: const Size(0, 34),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(borderRadius: controlBorderRadius),
+              side: BorderSide(color: colorScheme.outlineVariant),
+            ),
+          ),
         ],
       ),
     );

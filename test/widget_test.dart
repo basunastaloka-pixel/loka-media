@@ -15,6 +15,7 @@ import 'package:pilah_foto/models/local_delete_mode.dart';
 import 'package:pilah_foto/models/target_folder.dart';
 import 'package:pilah_foto/services/google_drive_service.dart';
 import 'package:pilah_foto/services/local_trash_service.dart';
+import 'package:pilah_foto/services/sort_position.dart';
 import 'package:pilah_foto/services/windows_desktop_oauth.dart';
 import 'package:pilah_foto/settings_screen.dart';
 import 'package:pilah_foto/trash_screen.dart';
@@ -261,6 +262,48 @@ void main() {
     expect(
       AppUpdateService.formatVersionLabel('v1.0.11', latestVersion: '1.0.12'),
       'Current version: v1.0.11 | Latest: v1.0.12',
+    );
+  });
+
+  test('sort mode changes preserve the current photo position', () {
+    expect(
+      resolveSortPosition(
+        previousOrder: ['newest', 'middle', 'oldest'],
+        currentIndex: 0,
+        nextOrder: ['oldest', 'middle', 'newest'],
+      ),
+      2,
+    );
+    expect(
+      resolveSortPosition(
+        previousOrder: ['oldest', 'middle', 'newest'],
+        currentIndex: 0,
+        nextOrder: ['newest', 'middle', 'oldest'],
+      ),
+      2,
+    );
+  });
+
+  test('Start Over resets to the first photo in the active sort order', () {
+    expect(
+      resolveSortPosition(
+        previousOrder: ['oldest', 'middle', 'newest'],
+        currentIndex: 2,
+        nextOrder: ['oldest', 'middle', 'newest'],
+        startOver: true,
+      ),
+      0,
+    );
+  });
+
+  test('sort position stays valid when the selected media is filtered out', () {
+    expect(
+      resolveSortPosition(
+        previousOrder: ['photo-a', 'video-b', 'photo-c'],
+        currentIndex: 1,
+        nextOrder: ['photo-a', 'photo-c'],
+      ),
+      1,
     );
   });
 
