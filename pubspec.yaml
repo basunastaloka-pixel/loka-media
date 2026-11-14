@@ -2,7 +2,7 @@ name: pilah_foto
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.10+10
+version: 1.0.11+11
 
 environment:
   sdk: ^3.13.7
