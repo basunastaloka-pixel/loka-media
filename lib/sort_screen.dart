@@ -18,7 +18,9 @@ import 'models/target_folder.dart';
 import 'services/drive_upload_queue.dart';
 import 'services/google_drive_service.dart';
 import 'services/local_trash_service.dart';
+import 'services/pro_entitlement_service.dart';
 import 'services/sort_position.dart';
+import 'pro_paywall.dart';
 import 'settings_screen.dart';
 import 'trash_screen.dart';
 import 'services/app_localizations.dart';
@@ -104,6 +106,10 @@ class _SortScreenState extends State<SortScreen>
   int _driveQueueSequence = 0;
   bool _isCheckingDriveBatches = false;
   bool _isAppResumed = true;
+  final ProEntitlementService _proService = ProEntitlementService.instance;
+  ProEntitlements _proEntitlements = const ProEntitlements();
+  Timer? _trialExpiryTimer;
+  bool _isShowingProPaywall = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -117,6 +123,7 @@ class _SortScreenState extends State<SortScreen>
       (_) => unawaited(_processCompletedDriveBatches()),
     );
     _loadSavedFolders();
+    unawaited(_loadLocalProStatus());
     _requestStoragePermissions();
     _fetchAlbums();
     _restoreDriveSession();
@@ -131,6 +138,7 @@ class _SortScreenState extends State<SortScreen>
       _sealCurrentDriveBatch();
     } else if (_isAppResumed) {
       unawaited(_processCompletedDriveBatches());
+      unawaited(_showStartupProPaywall());
     }
   }
 
@@ -139,6 +147,7 @@ class _SortScreenState extends State<SortScreen>
     WidgetsBinding.instance.removeObserver(this);
     _albumScrollController.dispose();
     _driveBatchPollTimer?.cancel();
+    _trialExpiryTimer?.cancel();
     _sealCurrentDriveBatch();
     _driveService.close();
     super.dispose();
@@ -146,8 +155,17 @@ class _SortScreenState extends State<SortScreen>
 
   Future<void> _restoreDriveSession() async {
     try {
+      final needsLegacyCheck = await _proService.needsLegacyDriveCheck();
+      final hadSavedDriveAccount = await _driveService.hasStoredAccount();
       await _driveService.restoreSession();
+      if (needsLegacyCheck) {
+        await _proService.completeLegacyDriveCheck(
+          wasConnected: hadSavedDriveAccount,
+        );
+      }
       if (mounted) setState(() {});
+      await _loadLocalProStatus();
+      await _showStartupProPaywall();
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -162,6 +180,80 @@ class _SortScreenState extends State<SortScreen>
         );
       }
     }
+  }
+
+  Future<void> _loadLocalProStatus() async {
+    final status = await _proService.loadLocalStatus();
+    if (!mounted) return;
+    setState(() => _proEntitlements = status);
+    _scheduleTrialExpiry(status);
+  }
+
+  void _scheduleTrialExpiry(ProEntitlements status) {
+    _trialExpiryTimer?.cancel();
+    final trialEnd = status.trialEndsAt;
+    if (trialEnd == null || !trialEnd.isAfter(DateTime.now())) return;
+    _trialExpiryTimer = Timer(
+      trialEnd.difference(DateTime.now()),
+      () => unawaited(_showStartupProPaywall()),
+    );
+  }
+
+  Future<void> _showStartupProPaywall() async {
+    if (!mounted || !_isAppResumed || _isShowingProPaywall) return;
+    final expired = await _proService.needsTrialExpiredPaywall();
+    final initial = !expired && await _proService.needsInitialPaywall();
+    if (!mounted) return;
+    if (!expired && !initial) return;
+    if (expired) await _proService.markTrialExpiredPaywallSeen();
+    if (!mounted) return;
+    _isShowingProPaywall = true;
+    try {
+      await showDialog<ProPaywallResult>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => ProPaywall(
+          service: _proService,
+          initial: initial,
+          expiredTrial: expired,
+        ),
+      );
+      await _loadLocalProStatus();
+    } finally {
+      _isShowingProPaywall = false;
+    }
+  }
+
+  Future<bool> _requireProFeature(ProFeature feature) async {
+    if (_isShowingProPaywall) return false;
+    final status = await _proService.refreshFor(feature);
+    if (!mounted) return false;
+    setState(() => _proEntitlements = status);
+    if (status.allows(feature)) return true;
+
+    final expired = status.trialExpired;
+    if (expired && await _proService.needsTrialExpiredPaywall()) {
+      await _proService.markTrialExpiredPaywallSeen();
+    }
+    if (!mounted) return false;
+    _isShowingProPaywall = true;
+    try {
+      await showDialog<ProPaywallResult>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => ProPaywall(
+          service: _proService,
+          requiredFeature: feature,
+          expiredTrial: expired,
+          verificationError: status.verificationError,
+        ),
+      );
+    } finally {
+      _isShowingProPaywall = false;
+    }
+    final updated = await _proService.loadLocalStatus();
+    if (mounted) setState(() => _proEntitlements = updated);
+    return updated.allows(feature);
   }
 
   Future<void> _requestStoragePermissions() async {
@@ -440,6 +532,11 @@ class _SortScreenState extends State<SortScreen>
     if (!target.isConfigured) {
       _showDestinationRequiredBanner(target);
       return;
+    }
+
+    if (target.isDriveDestination) {
+      final hasDriveAccess = await _requireProFeature(ProFeature.drive);
+      if (!mounted || !hasDriveAccess) return;
     }
 
     if (target.isDriveDestination && !_driveService.isConnected) {
@@ -1075,7 +1172,10 @@ class _SortScreenState extends State<SortScreen>
       );
     } finally {
       _isSettingsOpen = false;
-      if (mounted) setState(() {});
+      if (mounted) {
+        final status = await _proService.loadLocalStatus();
+        setState(() => _proEntitlements = status);
+      }
     }
   }
 
@@ -1135,6 +1235,8 @@ class _SortScreenState extends State<SortScreen>
 
   Future<void> _openDriveSource() async {
     _dismissDestinationHint();
+    final hasDriveAccess = await _requireProFeature(ProFeature.drive);
+    if (!mounted || !hasDriveAccess) return;
     await Navigator.push<void>(
       context,
       MaterialPageRoute<void>(
@@ -1680,6 +1782,13 @@ class _SortScreenState extends State<SortScreen>
 
   Widget _buildTargetPanel({required bool compact}) {
     final colorScheme = Theme.of(context).colorScheme;
+    final visibleTargetCount = _proEntitlements.canAddButtons
+        ? targetFolders.length
+        : targetFolders.length
+              .clamp(0, ProEntitlementService.freeTargetButtonLimit)
+              .toInt();
+    final itemCount =
+        visibleTargetCount + (_proEntitlements.canAddButtons ? 0 : 1);
 
     return Container(
       padding: EdgeInsets.all(compact ? 10 : 14),
@@ -1723,7 +1832,7 @@ class _SortScreenState extends State<SortScreen>
             child: compact
                 ? GridView.builder(
                     padding: EdgeInsets.zero,
-                    itemCount: targetFolders.length,
+                    itemCount: itemCount,
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,
@@ -1731,15 +1840,20 @@ class _SortScreenState extends State<SortScreen>
                           crossAxisSpacing: 8,
                           mainAxisSpacing: 8,
                         ),
-                    itemBuilder: (context, index) =>
-                        _buildTargetButton(index, compact: true),
+                    itemBuilder: (context, index) => index < visibleTargetCount
+                        ? _buildTargetButton(index, compact: true)
+                        : _buildLockedAddButton(compact: true),
                   )
                 : ListView.separated(
                     padding: EdgeInsets.zero,
-                    itemCount: targetFolders.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) =>
-                        _buildTargetButton(index, compact: false),
+                    itemCount: itemCount,
+                    separatorBuilder: (_, index) =>
+                        index < visibleTargetCount - 1
+                        ? const SizedBox(height: 8)
+                        : const SizedBox.shrink(),
+                    itemBuilder: (context, index) => index < visibleTargetCount
+                        ? _buildTargetButton(index, compact: false)
+                        : _buildLockedAddButton(compact: false),
                   ),
           ),
           const SizedBox(height: 8),
@@ -1760,6 +1874,39 @@ class _SortScreenState extends State<SortScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLockedAddButton({required bool compact}) {
+    return SizedBox(
+      height: compact ? 54 : 60,
+      child: OutlinedButton(
+        onPressed: _isMovingFile
+            ? null
+            : () => _requireProFeature(ProFeature.addButtons),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Text(
+                context.tr('Add Button - Pro {price}', {
+                  'price': ProProduct.addButtons.priceLabel,
+                }),
+                maxLines: 2,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: compact ? 9 : 12),
+              ),
+            ),
+            const Positioned(left: 0, child: Icon(Icons.add, size: 16)),
+            const Positioned(
+              right: 0,
+              child: Icon(Icons.lock_outline, size: 16),
+            ),
+          ],
+        ),
       ),
     );
   }

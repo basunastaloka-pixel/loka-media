@@ -138,6 +138,9 @@ class GoogleDriveService {
   bool get isConnected =>
       _currentUser != null && _driveApi != null && _accessToken != null;
 
+  Future<bool> hasStoredAccount() async =>
+      (await _secureStorage.read(key: _accountEmailKey)) != null;
+
   Future<DriveAccount?> restoreSession() async {
     _clearApi();
     if (Platform.isAndroid) return _restoreAndroidSession();

@@ -162,6 +162,54 @@ const Map<String, String> _indonesianTranslations = {
   'Unable to validate this folder.': 'Tidak dapat memvalidasi folder ini.',
   'Retry': 'Coba lagi',
   'Press Back again to exit': 'Tekan Kembali sekali lagi untuk keluar',
+  'Unlock Pro': 'Buka Pro',
+  'Your free trial has ended': 'Uji coba gratis Anda telah berakhir',
+  'Choose Pro for unlimited target buttons and Google Drive uploads.': 'Pilih Pro untuk tombol PINDAHKAN tanpa batas dan upload ke Google Drive.',
+  'Payment mode: {mode}': 'Mode pembayaran: {mode}',
+  'Unlimited target buttons': 'Tombol target tanpa batas',
+  'Google Drive upload': 'Upload Google Drive',
+  'Pro Bundle': 'Paket Pro',
+  'Unlimited PINDAHKAN buttons': 'Tombol PINDAHKAN tanpa batas',
+  'Connect Drive and upload': 'Hubungkan Drive dan upload',
+  'Both Pro features': 'Kedua fitur Pro',
+  'Pay with QRIS': 'Bayar dengan QRIS',
+  'Complete the QRIS payment. Pro access unlocks automatically after payment is confirmed.': 'Selesaikan pembayaran QRIS. Akses Pro akan terbuka otomatis setelah pembayaran dikonfirmasi.',
+  'Check payment': 'Periksa pembayaran',
+  'Payment is not confirmed yet. Please check again shortly.':
+      'Pembayaran belum dikonfirmasi. Silakan periksa kembali sebentar lagi.',
+  'Start 3-Day Free Trial': 'Coba Gratis 3 Hari',
+  'Continue for Free': 'Lanjut Gratis',
+  'View Prices': 'Lihat Harga',
+  'Coba Gratis 3 Hari': 'Coba Gratis 3 Hari',
+  'Lanjut Gratis': 'Lanjut Gratis',
+  'Lihat Harga': 'Lihat Harga',
+  'Add Button - Pro {price}': 'Tambah Tombol - Pro {price}',
+  'Connect Drive · Pro {price}': 'Hubungkan Drive · Pro {price}',
+  'Pro payments are not configured. Please try again later.':
+      'Pembayaran Pro belum dikonfigurasi. Silakan coba lagi nanti.',
+  'Unable to open the Midtrans payment page.':
+      'Tidak dapat membuka halaman pembayaran Midtrans.',
+  'Payment service did not return a payment URL.':
+      'Layanan pembayaran tidak memberikan URL pembayaran.',
+  'Payment service returned an invalid payment URL.':
+      'Layanan pembayaran memberikan URL yang tidak valid.',
+  'Pro service returned HTTP {status}.':
+      'Layanan Pro mengembalikan HTTP {status}.',
+  'Pro service returned invalid JSON.':
+      'Layanan Pro mengembalikan JSON yang tidak valid.',
+  'The Pro installation ID could not be saved.':
+      'ID instalasi Pro tidak dapat disimpan.',
+  'The initial Pro choice could not be saved.':
+      'Pilihan awal Pro tidak dapat disimpan.',
+  'The expired trial paywall state could not be saved.':
+      'Status penawaran setelah uji coba tidak dapat disimpan.',
+  'The free trial could not be saved.': 'Uji coba gratis tidak dapat disimpan.',
+  'The legacy Drive access check could not be saved.':
+      'Pemeriksaan akses Drive lama tidak dapat disimpan.',
+  'The Pro status could not be verified.':
+      'Status Pro tidak dapat diverifikasi.',
+  'Pro service returned invalid entitlement data.':
+      'Layanan Pro mengembalikan data akses yang tidak valid.',
   'This is new package version. Please uninstall old Loka Files (com.example.pilah_foto) after backing up your Target folders.': 'Ini adalah versi paket baru. Harap hapus instalasi Loka Files lama (com.example.pilah_foto) setelah mencadangkan folder Target Anda.',
   'OK': 'Oke',
   'Start Over': 'Ulang dari Awal',

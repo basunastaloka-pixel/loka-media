@@ -71,8 +71,8 @@ sign-in requires a stable release signing key.
 1. Create and push a version tag:
 
    ```bash
-   git tag v1.0.12
-   git push origin v1.0.12
+   git tag v1.0.13
+   git push origin v1.0.13
    ```
 
 2. Wait for the **Android Release** workflow to finish in GitHub Actions.

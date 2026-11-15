@@ -12,6 +12,8 @@ import 'models/target_folder.dart';
 import 'services/app_update_service.dart';
 import 'services/app_localizations.dart';
 import 'services/google_drive_service.dart';
+import 'services/pro_entitlement_service.dart';
+import 'pro_paywall.dart';
 import 'widgets/drive_folder_picker.dart';
 import 'main.dart';
 
@@ -55,6 +57,9 @@ class _SettingsScreenState extends State<SettingsScreen>
   int _downloadedBytes = 0;
   int _downloadTotalBytes = 0;
   bool _awaitingInstallPermissionSettings = false;
+  final ProEntitlementService _proService = ProEntitlementService.instance;
+  ProEntitlements _proEntitlements = const ProEntitlements();
+  bool _isShowingProPaywall = false;
 
   @override
   void initState() {
@@ -80,6 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen>
         .toList();
     _deleteModeLoad = _loadDeleteMode();
     unawaited(_refreshInstalledVersion());
+    unawaited(_loadProEntitlements());
   }
 
   Future<SharedPreferences> _getPreferences() async {
@@ -148,6 +154,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Future<void> _connectDrive() async {
+    if (!await _requireProFeature(ProFeature.drive)) return;
     setState(() => _isDriveBusy = true);
     try {
       final account = await widget.driveService.signIn();
@@ -180,6 +187,38 @@ class _SettingsScreenState extends State<SettingsScreen>
     } finally {
       if (mounted) setState(() => _isDriveBusy = false);
     }
+  }
+
+  Future<void> _loadProEntitlements() async {
+    final status = await _proService.loadLocalStatus();
+    if (mounted) setState(() => _proEntitlements = status);
+  }
+
+  Future<bool> _requireProFeature(ProFeature feature) async {
+    if (_isShowingProPaywall) return false;
+    final status = await _proService.refreshFor(feature);
+    if (!mounted) return false;
+    setState(() => _proEntitlements = status);
+    if (status.allows(feature)) return true;
+
+    _isShowingProPaywall = true;
+    try {
+      await showDialog<ProPaywallResult>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => ProPaywall(
+          service: _proService,
+          requiredFeature: feature,
+          expiredTrial: status.trialExpired,
+          verificationError: status.verificationError,
+        ),
+      );
+    } finally {
+      _isShowingProPaywall = false;
+    }
+    final updated = await _proService.loadLocalStatus();
+    if (mounted) setState(() => _proEntitlements = updated);
+    return updated.allows(feature);
   }
 
   void _showConnectionError(String message) {
@@ -593,7 +632,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  void _addNewSlot() {
+  Future<void> _addNewSlot() async {
+    if (!await _requireProFeature(ProFeature.addButtons)) return;
     setState(() {
       final label = context.tr('New Category');
       _folders.add(TargetFolder(label: label, path: ''));
@@ -899,7 +939,14 @@ class _SettingsScreenState extends State<SettingsScreen>
                       mainAxisSpacing: 8,
                       mainAxisExtent: 128,
                     ),
-                    itemCount: _folders.length,
+                    itemCount: _proEntitlements.canAddButtons
+                        ? _folders.length
+                        : _folders.length
+                              .clamp(
+                                0,
+                                ProEntitlementService.freeTargetButtonLimit,
+                              )
+                              .toInt(),
                     itemBuilder: (context, index) {
                       final folder = _folders[index];
                       return Card(
@@ -1061,7 +1108,7 @@ class _SettingsScreenState extends State<SettingsScreen>
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-            child: OutlinedButton.icon(
+            child: OutlinedButton(
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(44),
                 shape: RoundedRectangleBorder(
@@ -1069,8 +1116,30 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
               ),
               onPressed: _addNewSlot,
-              icon: const Icon(Icons.add),
-              label: Text(context.tr('Add folder')),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.add),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      _proEntitlements.canAddButtons
+                          ? context.tr('Add folder')
+                          : context.tr('Add Button - Pro {price}', {
+                              'price': ProProduct.addButtons.priceLabel,
+                            }),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  if (!_proEntitlements.canAddButtons) ...[
+                    const SizedBox(width: 6),
+                    const Icon(Icons.lock_outline, size: 18),
+                  ],
+                ],
+              ),
             ),
           ),
           Padding(
@@ -1111,7 +1180,12 @@ class _SettingsScreenState extends State<SettingsScreen>
                     style: TextStyle(fontWeight: FontWeight.w600),
                   ),
                   Text(
-                    account?.email ?? context.tr('Not connected'),
+                    account?.email ??
+                        (_proEntitlements.canUseDrive
+                            ? context.tr('Not connected')
+                            : context.tr('Connect Drive · Pro {price}', {
+                                'price': ProProduct.drive.priceLabel,
+                              })),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -1131,7 +1205,16 @@ class _SettingsScreenState extends State<SettingsScreen>
             else if (account == null)
               OutlinedButton(
                 onPressed: _connectDrive,
-                child: Text(context.tr('Connect')),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!_proEntitlements.canUseDrive) ...[
+                      const Icon(Icons.lock_outline, size: 16),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(context.tr('Connect')),
+                  ],
+                ),
               )
             else
               TextButton(
