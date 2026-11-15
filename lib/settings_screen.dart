@@ -7,13 +7,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_tour_screen.dart';
+import 'free_paywall.dart';
 import 'models/local_delete_mode.dart';
 import 'models/target_folder.dart';
 import 'services/app_update_service.dart';
 import 'services/app_localizations.dart';
 import 'services/google_drive_service.dart';
-import 'services/pro_entitlement_service.dart';
-import 'pro_paywall.dart';
 import 'widgets/drive_folder_picker.dart';
 import 'main.dart';
 
@@ -57,16 +56,14 @@ class _SettingsScreenState extends State<SettingsScreen>
   int _downloadedBytes = 0;
   int _downloadTotalBytes = 0;
   bool _awaitingInstallPermissionSettings = false;
-  final ProEntitlementService _proService = ProEntitlementService.instance;
-  ProEntitlements _proEntitlements = const ProEntitlements();
-  bool _isShowingProPaywall = false;
+  bool _isShowingFreePaywall = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsFlutterBinding.ensureInitialized();
-    _folders = widget.initialFolders
+    _folders = widget.initialFolders.take(2)
         .map(
           (folder) => TargetFolder(
             label: folder.label,
@@ -85,7 +82,6 @@ class _SettingsScreenState extends State<SettingsScreen>
         .toList();
     _deleteModeLoad = _loadDeleteMode();
     unawaited(_refreshInstalledVersion());
-    unawaited(_loadProEntitlements());
   }
 
   Future<SharedPreferences> _getPreferences() async {
@@ -154,7 +150,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Future<void> _connectDrive() async {
-    if (!await _requireProFeature(ProFeature.drive)) return;
+    if (!await _requireProFeature(PaywalledFeature.googleDrive)) return;
     setState(() => _isDriveBusy = true);
     try {
       final account = await widget.driveService.signIn();
@@ -189,36 +185,15 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
   }
 
-  Future<void> _loadProEntitlements() async {
-    final status = await _proService.loadLocalStatus();
-    if (mounted) setState(() => _proEntitlements = status);
-  }
-
-  Future<bool> _requireProFeature(ProFeature feature) async {
-    if (_isShowingProPaywall) return false;
-    final status = await _proService.refreshFor(feature);
-    if (!mounted) return false;
-    setState(() => _proEntitlements = status);
-    if (status.allows(feature)) return true;
-
-    _isShowingProPaywall = true;
+  Future<bool> _requireProFeature(PaywalledFeature feature) async {
+    if (_isShowingFreePaywall) return false;
+    _isShowingFreePaywall = true;
     try {
-      await showDialog<ProPaywallResult>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => ProPaywall(
-          service: _proService,
-          requiredFeature: feature,
-          expiredTrial: status.trialExpired,
-          verificationError: status.verificationError,
-        ),
-      );
+      await showFreePaywall(context, feature: feature);
     } finally {
-      _isShowingProPaywall = false;
+      _isShowingFreePaywall = false;
     }
-    final updated = await _proService.loadLocalStatus();
-    if (mounted) setState(() => _proEntitlements = updated);
-    return updated.allows(feature);
+    return false;
   }
 
   void _showConnectionError(String message) {
@@ -566,6 +541,8 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Future<void> _pickDriveFolderForIndex(int index) async {
+    if (!await _requireProFeature(PaywalledFeature.googleDrive)) return;
+    if (!mounted) return;
     if (!widget.driveService.isConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(context.tr('Connect Google Drive first.'))),
@@ -633,7 +610,10 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Future<void> _addNewSlot() async {
-    if (!await _requireProFeature(ProFeature.addButtons)) return;
+    if (_folders.length >= 2) {
+      await _requireProFeature(PaywalledFeature.moreMoveButtons);
+      return;
+    }
     setState(() {
       final label = context.tr('New Category');
       _folders.add(TargetFolder(label: label, path: ''));
@@ -939,14 +919,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       mainAxisSpacing: 8,
                       mainAxisExtent: 128,
                     ),
-                    itemCount: _proEntitlements.canAddButtons
-                        ? _folders.length
-                        : _folders.length
-                              .clamp(
-                                0,
-                                ProEntitlementService.freeTargetButtonLimit,
-                              )
-                              .toInt(),
+                    itemCount: _folders.length.clamp(0, 2).toInt(),
                     itemBuilder: (context, index) {
                       final folder = _folders[index];
                       return Card(
@@ -1124,17 +1097,15 @@ class _SettingsScreenState extends State<SettingsScreen>
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      _proEntitlements.canAddButtons
-                          ? context.tr('Add folder')
-                          : context.tr('Add Button - Pro {price}', {
-                              'price': ProProduct.addButtons.priceLabel,
-                            }),
+                      _folders.length >= 2
+                          ? context.tr('Add folder · Pro')
+                          : context.tr('Add folder'),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
                     ),
                   ),
-                  if (!_proEntitlements.canAddButtons) ...[
+                  if (_folders.length >= 2) ...[
                     const SizedBox(width: 6),
                     const Icon(Icons.lock_outline, size: 18),
                   ],
@@ -1181,11 +1152,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                   ),
                   Text(
                     account?.email ??
-                        (_proEntitlements.canUseDrive
-                            ? context.tr('Not connected')
-                            : context.tr('Connect Drive · Pro {price}', {
-                                'price': ProProduct.drive.priceLabel,
-                              })),
+                        context.tr('Google Drive · Pro'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -1208,10 +1175,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (!_proEntitlements.canUseDrive) ...[
-                      const Icon(Icons.lock_outline, size: 16),
-                      const SizedBox(width: 4),
-                    ],
+                    const Icon(Icons.lock_outline, size: 16),
+                    const SizedBox(width: 4),
                     Text(context.tr('Connect')),
                   ],
                 ),

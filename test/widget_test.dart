@@ -4,10 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/testing.dart';
-import 'package:http/http.dart' as http;
 import 'package:pilah_foto/app_tour_screen.dart';
-import 'package:pilah_foto/pro_paywall.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,7 +15,6 @@ import 'package:pilah_foto/models/local_delete_mode.dart';
 import 'package:pilah_foto/models/target_folder.dart';
 import 'package:pilah_foto/services/google_drive_service.dart';
 import 'package:pilah_foto/services/local_trash_service.dart';
-import 'package:pilah_foto/services/pro_entitlement_service.dart';
 import 'package:pilah_foto/services/sort_position.dart';
 import 'package:pilah_foto/services/windows_desktop_oauth.dart';
 import 'package:pilah_foto/settings_screen.dart';
@@ -343,179 +339,6 @@ void main() {
     );
   });
 
-  test('Pro products have the configured rounded prices', () {
-    expect(ProProduct.addButtons.priceLabel, 'Rp 30.000');
-    expect(ProProduct.drive.priceLabel, 'Rp 35.000');
-    expect(ProProduct.bundle.priceLabel, 'Rp 59.000');
-  });
-
-  testWidgets('initial Pro paywall offers trial, free, and price choices', (
-    WidgetTester tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({});
-    final service = ProEntitlementService();
-    addTearDown(service.close);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: TextButton(
-              onPressed: () => showDialog<void>(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => ProPaywall(service: service, initial: true),
-              ),
-              child: const Text('Open paywall'),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('Open paywall'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Start 3-Day Free Trial'), findsOneWidget);
-    expect(find.text('Continue for Free'), findsOneWidget);
-    expect(find.text('View Prices'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  test('three-day trial starts once and grants both Pro features', () async {
-    SharedPreferences.setMockInitialValues({});
-    final service = ProEntitlementService();
-    addTearDown(service.close);
-
-    expect(await service.startFreeTrial(), isTrue);
-    expect(await service.startFreeTrial(), isFalse);
-    final trial = await service.loadLocalStatus();
-    expect(trial.trialActive, isTrue);
-    expect(trial.canAddButtons, isTrue);
-    expect(trial.canUseDrive, isTrue);
-
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setInt(
-      'loka_pro_trial_end_ms',
-      DateTime.now()
-          .subtract(const Duration(seconds: 1))
-          .millisecondsSinceEpoch,
-    );
-    final expired = await service.loadLocalStatus();
-    expect(expired.trialActive, isFalse);
-    expect(expired.trialExpired, isTrue);
-    expect(expired.allows(ProFeature.addButtons), isFalse);
-    expect(expired.allows(ProFeature.drive), isFalse);
-  });
-
-  test(
-    'legacy Drive connections are grandfathered but not Add Button Pro',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      final service = ProEntitlementService();
-      addTearDown(service.close);
-
-      await service.completeLegacyDriveCheck(wasConnected: true);
-      final status = await service.loadLocalStatus();
-      expect(status.allows(ProFeature.drive), isTrue);
-      expect(status.allows(ProFeature.addButtons), isFalse);
-      expect(await service.needsInitialPaywall(), isFalse);
-    },
-  );
-
-  test(
-    'Pro status check caches only feature entitlements from the API',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      var requestBody = <String, Object?>{};
-      final client = MockClient((request) async {
-        requestBody = jsonDecode(request.body) as Map<String, Object?>;
-        return http.Response(
-          jsonEncode({'addButtons': true, 'drive': false}),
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      });
-      final service = ProEntitlementService(
-        client: client,
-        endpoint: Uri.parse('https://license.example/exec'),
-      );
-      addTearDown(service.close);
-
-      final status = await service.refreshStatus();
-      expect(requestBody['action'], 'status');
-      expect(requestBody['installId'], isA<String>());
-      expect(status.allows(ProFeature.addButtons), isTrue);
-      expect(status.allows(ProFeature.drive), isFalse);
-      expect(status.grandfatheredDrive, isFalse);
-      expect(await service.needsInitialPaywall(), isFalse);
-    },
-  );
-
-  test('malformed Pro status preserves cached access and reports verification error', () async {
-    SharedPreferences.setMockInitialValues({'loka_pro_drive': true});
-    final client = MockClient(
-      (_) async => http.Response(
-        jsonEncode({
-          'addButtons': false,
-          'drive': false,
-          'sheetRows': ['private'],
-        }),
-        200,
-      ),
-    );
-    final service = ProEntitlementService(
-      client: client,
-      endpoint: Uri.parse('https://license.example/exec'),
-    );
-    addTearDown(service.close);
-
-    final status = await service.refreshStatus();
-    expect(status.allows(ProFeature.drive), isTrue);
-    expect(status.verificationError, isNotNull);
-    expect(
-      (await SharedPreferences.getInstance()).getBool('loka_pro_drive'),
-      isTrue,
-    );
-  });
-
-  test(
-    'Pro payment creation sends product and returns Snap URL only',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      var requestBody = <String, Object?>{};
-      final client = MockClient((request) async {
-        requestBody = jsonDecode(request.body) as Map<String, Object?>;
-        return http.Response(
-          jsonEncode({'paymentUrl': 'https://app.midtrans.com/snap/v1/token'}),
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      });
-      final service = ProEntitlementService(
-        client: client,
-        endpoint: Uri.parse('https://license.example/exec'),
-      );
-      addTearDown(service.close);
-
-      expect(
-        await service.createPayment(ProProduct.bundle),
-        'https://app.midtrans.com/snap/v1/token',
-      );
-      expect(requestBody['action'], 'createPayment');
-      expect(requestBody['product'], 'bundle');
-      expect(requestBody['installId'], isA<String>());
-      expect(requestBody.containsKey('serverKey'), isFalse);
-      expect(requestBody.containsKey('sheetRows'), isFalse);
-    },
-  );
-
   test('existing installations skip the first-run App Tour', () async {
     SharedPreferences.setMockInitialValues({'saved_target_folders': '[]'});
 
@@ -753,7 +576,7 @@ void main() {
   testWidgets('target folder settings fit a compact mobile screen', (
     WidgetTester tester,
   ) async {
-    SharedPreferences.setMockInitialValues({'loka_pro_add_buttons': true});
+    SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -764,7 +587,6 @@ void main() {
         home: SettingsScreen(
           initialFolders: [
             TargetFolder(label: 'Family', path: '/storage/photos/family'),
-            TargetFolder(label: 'Work', path: '/storage/photos/work'),
             TargetFolder(
               label: 'Drive Archive',
               path: '',
@@ -818,7 +640,7 @@ void main() {
   });
 
   testWidgets(
-    'Free Settings caps target buttons and shows the locked Pro add',
+    'Free Settings caps target buttons and opens the key-free paywall',
     (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({});
       tester.view.physicalSize = const Size(390, 844);
@@ -864,13 +686,25 @@ void main() {
         findsNothing,
       );
       await tester.scrollUntilVisible(
-        find.text('Add Button - Pro Rp 30.000'),
+        find.text('Add folder · Pro'),
         300,
         scrollable: find.byType(Scrollable).first,
       );
       expect(tester.takeException(), isNull);
-      expect(find.text('Add Button - Pro Rp 30.000'), findsOneWidget);
+      expect(find.text('Add folder · Pro'), findsOneWidget);
       expect(find.byIcon(Icons.lock_outline), findsWidgets);
+
+      await tester.tap(find.text('Add folder · Pro'));
+      await tester.pumpAndSettle();
+      expect(find.text('Unlock Pro'), findsOneWidget);
+      expect(
+        find.text('More move buttons are available in Loka Media Pro.'),
+        findsOneWidget,
+      );
+      expect(find.text('Continue for Free'), findsOneWidget);
+      expect(find.text('Pay with QRIS'), findsNothing);
+      expect(find.text('View Prices'), findsNothing);
+      expect(tester.takeException(), isNull);
     },
   );
 

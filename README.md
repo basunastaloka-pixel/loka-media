@@ -11,6 +11,9 @@ Settings, and the language preference is saved on the device.
 
 ## Google Drive setup
 
+The following configuration applies only to the private Pro edition. Google
+Drive remains locked in the public Free build.
+
 1. Enable the Google Drive API and Google Picker API in the Google Cloud
    project used by the app.
 2. Configure the OAuth consent screen and add test accounts if the app remains
@@ -82,50 +85,21 @@ a first-launch reminder to back up Target folders and uninstall the old app.
 To sign in to Drive, add the two new Android OAuth clients described above and
 keep the old clients until old-package installs are no longer in use.
 
-## Pro access and payments
+## Free and Pro editions
 
-The public Loka Files repository contains the Free app, Pro gating UI, and a
-client for a separately deployed license API. It does not contain Midtrans
-server keys, Apps Script secrets, Sheet IDs, or Sheet data. Keep the Apps
-Script/payment implementation and its configuration in a private Pro
-repository. Android APK releases remain in this public repository so the
-in-app updater can continue to find them.
+This public repository builds the Free edition, with up to two local target
+folders. Additional move buttons and Google Drive are shown as Pro features in
+a key-free paywall; payment and entitlement configuration belongs in the
+private `loka-media-pro` repository. Android APK releases remain published in
+this public repository for the in-app updater.
 
-The app starts a three-day local trial only when the user chooses **Start
-3-Day Free Trial**. It remembers the last confirmed Pro entitlements for
-offline access and checks the private API when a locked Pro feature is tapped.
-The API should accept JSON POST requests:
+## Google Drive (Pro)
 
-- `{"action":"status","installId":"..."}` and return only
-  `{"addButtons":true|false,"drive":true|false}`.
-- `{"action":"createPayment","installId":"...","product":"add_buttons|drive|bundle","midtransMode":"sandbox|production"}`
-  and return `{"paymentUrl":"https://..."}` for a Midtrans Snap QRIS checkout.
+Google Drive support remains in the source but is locked behind the Pro prompt
+in the public Free build. Pro checkout and entitlement configuration is
+maintained separately in the private repository.
 
-The private backend must assign the published prices (Rp 30,000, Rp 35,000,
-and Rp 59,000), create Snap transactions with QRIS enabled, verify Midtrans
-webhook signatures, update the private Sheet automatically, and return only
-the two entitlement booleans to the app. Do not return Sheet rows or payment
-secrets to the app.
-
-Configure the Apps Script deployment URL at build time; leave it unset until
-the private service is deployed:
-
-```powershell
-flutter build apk --release `
-  --dart-define=PRO_LICENSE_API_URL="https://script.google.com/macros/s/<deployment-id>/exec" `
-  --dart-define=MIDTRANS_MODE="sandbox"
-```
-
-In the private backend repository, configure `MIDTRANS_SERVER_KEY`,
-`MIDTRANS_MODE` (`sandbox` or `production`), and the private Sheet ID through
-Apps Script Script Properties or that private repository's secret store.
-Never pass the Midtrans server key as a Flutter `--dart-define`. Switch to
-production only after the Midtrans account, webhook, and production credentials
-are ready. The current repository does not include or deploy that private
-backend; without its URL, payment checkout stays unavailable and the app
-continues to provide Free access and the local trial.
-
-## Google Drive features
+When enabled in the Pro edition, the Drive implementation can:
 
 - Choose a local folder or Google Drive folder as a destination for each move
   action in Settings.
